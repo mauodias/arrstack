@@ -36,7 +36,7 @@ class ArcaneClient:
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         url = f"{self.base_url}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json", "User-Agent": "arcane-deploy/1.0"}
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request) as response:

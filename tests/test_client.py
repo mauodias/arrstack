@@ -60,6 +60,7 @@ class TestArcaneClient(unittest.TestCase):
         request = mock_urlopen.call_args[0][0]
         self.assertEqual(request.full_url, "https://arcane.example.com/api/environments")
         self.assertEqual(request.get_header("X-api-key"), "test-key")
+        self.assertEqual(request.get_header("User-agent"), "arcane-deploy/1.0")
 
     @patch("arcane_deploy.client.urllib.request.urlopen")
     def test_create_project_sends_post_with_payload(self, mock_urlopen):
@@ -71,6 +72,7 @@ class TestArcaneClient(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.full_url, "https://arcane.example.com/api/environments/env-1/projects")
         self.assertEqual(json.loads(request.data), payload)
+        self.assertEqual(request.get_header("User-agent"), "arcane-deploy/1.0")
 
     @patch("arcane_deploy.client.urllib.request.urlopen")
     def test_update_project_sends_put(self, mock_urlopen):
