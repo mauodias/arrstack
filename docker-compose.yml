@@ -111,3 +111,56 @@ services:
       rclone-mount:
         condition: service_healthy
     restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: arr-prowlarr
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/prowlarr:/config
+    depends_on:
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: arr-radarr
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/radarr:/config
+      - /mnt/remote-media/movies:/movies:rslave
+      - /mnt/remote-media/downloads:/downloads:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: arr-sonarr
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/sonarr:/config
+      - /mnt/remote-media/tv:/tv:rslave
+      - /mnt/remote-media/downloads:/downloads:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
