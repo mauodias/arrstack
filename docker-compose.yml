@@ -74,6 +74,9 @@ services:
       - net.ipv6.conf.all.forwarding=1
     devices:
       - /dev/net/tun:/dev/net/tun
+    networks:
+      default: {}
+      vpn_net: {}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
