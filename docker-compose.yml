@@ -54,3 +54,22 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: arr-tailscale
+    hostname: arr-vps
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - ./config/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    restart: unless-stopped
