@@ -365,7 +365,7 @@ services:
     restart: unless-stopped
 
   seerr:
-    image: fallenbagel/seerr:latest
+    image: ghcr.io/seerr-team/seerr:latest
     container_name: arr-seerr
     network_mode: "service:tailscale"
     environment:
