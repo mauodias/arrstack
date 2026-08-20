@@ -177,6 +177,79 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  seerr:
+    image: fallenbagel/seerr:latest
+    container_name: arr-seerr
+    network_mode: "service:tailscale"
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ./config/seerr:/app/config
+    depends_on:
+      radarr:
+        condition: service_started
+      sonarr:
+        condition: service_started
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: arr-lidarr
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/lidarr:/config
+      - /mnt/remote-media/music:/music:rslave
+      - /mnt/remote-media/downloads:/downloads:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: arr-slskd
+    network_mode: "service:tailscale"
+    environment:
+      - TZ=${TZ}
+      - SLSKD_USERNAME=${SLSKD_USERNAME}
+      - SLSKD_PASSWORD=${SLSKD_PASSWORD}
+      - SLSKD_API_KEY=${SLSKD_API_KEY}
+    volumes:
+      - ./config/slskd:/app
+      - /mnt/remote-media/downloads:/downloads:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  soularr:
+    image: mrusse08/soularr:latest
+    container_name: arr-soularr
+    network_mode: "service:tailscale"
+    environment:
+      - TZ=${TZ}
+      - SCRIPT_INTERVAL=300
+    volumes:
+      - ./config/soularr:/data
+    depends_on:
+      lidarr:
+        condition: service_started
+      slskd:
+        condition: service_started
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
 networks:
   vpn_net:
     driver: bridge
