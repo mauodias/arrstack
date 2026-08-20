@@ -170,9 +170,13 @@ SERVER_COUNTRIES=Netherlands,Switzerland
 AIRVPN_FORWARDED_PORT=48291
 
 # Soulseek (slskd) Configuration
-SLSKD_USERNAME=<your-soulseek-username>
-SLSKD_PASSWORD=<your-soulseek-password>
+# Web UI login (slskd dashboard access)
+SLSKD_USERNAME=<your-web-ui-username>
+SLSKD_PASSWORD=<your-web-ui-password>
 SLSKD_API_KEY=<generated-api-key-for-soularr>
+# Soulseek network login (P2P network connection)
+SLSKD_SLSK_USERNAME=<your-soulseek-network-username>
+SLSKD_SLSK_PASSWORD=<your-soulseek-network-password>
 
 # Jellyfin
 JELLYFIN_PUBLISHED_SERVER_URL=http://arr-vps:8096
@@ -406,9 +410,13 @@ services:
     network_mode: "service:tailscale"
     environment:
       - TZ=${TZ}
+      # Web UI login (slskd dashboard)
       - SLSKD_USERNAME=${SLSKD_USERNAME}
       - SLSKD_PASSWORD=${SLSKD_PASSWORD}
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      # Soulseek network login (P2P network connection)
+      - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
+      - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave

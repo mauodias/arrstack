@@ -219,9 +219,13 @@ services:
     network_mode: "service:tailscale"
     environment:
       - TZ=${TZ}
+      # Web UI login (slskd dashboard)
       - SLSKD_USERNAME=${SLSKD_USERNAME}
       - SLSKD_PASSWORD=${SLSKD_PASSWORD}
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      # Soulseek network login (P2P network connection)
+      - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
+      - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
