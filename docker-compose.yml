@@ -226,6 +226,9 @@ services:
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
+      # Enable Web UI to persist configuration changes (shared folders, download prefs, etc).
+      # Safe here because Web UI access is restricted to Tailscale-only, never public internet.
+      - SLSKD_REMOTE_CONFIGURATION=true
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
