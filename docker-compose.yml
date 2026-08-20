@@ -47,7 +47,7 @@ services:
       bootstrap:
         condition: service_completed_successfully
     command: >
-      mount hetzner-box: /data
+      mount hetzner_box: /data
       --allow-other
       --cache-dir /cache
       --dir-cache-time 1000h
