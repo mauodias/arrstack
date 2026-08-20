@@ -9,18 +9,10 @@ PGID="${PGID:-1000}"
 CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage"
 MEDIA_DIRS="movies tv music downloads"
 
-ENV_FILE="$WORKSPACE/.env"
-if [ ! -f "$ENV_FILE" ]; then
-    echo "ERROR: $ENV_FILE not found. Populate it from .env.example first." >&2
+if [ -z "${HETZNER_STORAGEBOX_USER:-}" ] || [ -z "${HETZNER_STORAGEBOX_PASS_OBSCURED:-}" ]; then
+    echo "ERROR: HETZNER_STORAGEBOX_USER and HETZNER_STORAGEBOX_PASS_OBSCURED must be set (populate .env from .env.example first)." >&2
     exit 1
 fi
-
-for key in HETZNER_STORAGEBOX_USER HETZNER_STORAGEBOX_PASS_OBSCURED; do
-    if ! grep -q "^${key}=" "$ENV_FILE"; then
-        echo "ERROR: $ENV_FILE is missing required key $key" >&2
-        exit 1
-    fi
-done
 
 for dir in $CONFIG_DIRS; do
     mkdir -p "$WORKSPACE/config/$dir"

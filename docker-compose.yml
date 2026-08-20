@@ -7,6 +7,8 @@ services:
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
+      - HETZNER_STORAGEBOX_USER=${HETZNER_STORAGEBOX_USER}
+      - HETZNER_STORAGEBOX_PASS_OBSCURED=${HETZNER_STORAGEBOX_PASS_OBSCURED}
     volumes:
       - .:/workspace
       - /mnt/remote-media:/mnt/remote-media
