@@ -28,6 +28,7 @@ services:
   rclone-mount:
     image: rclone/rclone:latest
     container_name: arr-rclone
+    entrypoint: [""]
     cap_add:
       - SYS_ADMIN
     devices:
