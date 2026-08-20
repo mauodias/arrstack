@@ -60,6 +60,8 @@ class TestRun(unittest.TestCase):
             result = cli.run(repo_root, environ=environ)
 
         self.assertEqual(result, 0)
+        mock_client.list_environments.assert_called_once_with(search="vps")
+        mock_client.list_projects.assert_called_once_with("env-1", search="arr-stack")
         mock_client.create_project.assert_called_once()
         mock_client.deploy_project.assert_called_once_with("env-1", "p1", redeploy=False)
 
@@ -88,6 +90,8 @@ class TestRun(unittest.TestCase):
             result = cli.run(repo_root, environ=environ)
 
         self.assertEqual(result, 0)
+        mock_client.list_environments.assert_called_once_with(search="vps")
+        mock_client.list_projects.assert_called_once_with("env-1", search="arr-stack")
         mock_client.update_project.assert_called_once_with("env-1", "p1", {
             "name": "arr-stack",
             "composeContent": "services: {}",

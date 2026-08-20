@@ -63,6 +63,39 @@ class TestArcaneClient(unittest.TestCase):
         self.assertEqual(request.get_header("User-agent"), "arcane-deploy/1.0")
 
     @patch("arcane_deploy.client.urllib.request.urlopen")
+    def test_list_environments_with_search_appends_query_string(self, mock_urlopen):
+        mock_urlopen.return_value = _fake_response({"success": True, "data": [{"id": "1"}]})
+        result = self.client.list_environments(search="Local Docker")
+        self.assertEqual(result, [{"id": "1"}])
+        request = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            request.full_url,
+            "https://arcane.example.com/api/environments?search=Local+Docker",
+        )
+
+    @patch("arcane_deploy.client.urllib.request.urlopen")
+    def test_list_projects_returns_data_list(self, mock_urlopen):
+        mock_urlopen.return_value = _fake_response({"success": True, "data": [{"id": "p1"}]})
+        result = self.client.list_projects("env-1")
+        self.assertEqual(result, [{"id": "p1"}])
+        request = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            request.full_url,
+            "https://arcane.example.com/api/environments/env-1/projects",
+        )
+
+    @patch("arcane_deploy.client.urllib.request.urlopen")
+    def test_list_projects_with_search_appends_query_string(self, mock_urlopen):
+        mock_urlopen.return_value = _fake_response({"success": True, "data": [{"id": "p1"}]})
+        result = self.client.list_projects("env-1", search="arr-stack")
+        self.assertEqual(result, [{"id": "p1"}])
+        request = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            request.full_url,
+            "https://arcane.example.com/api/environments/env-1/projects?search=arr-stack",
+        )
+
+    @patch("arcane_deploy.client.urllib.request.urlopen")
     def test_create_project_sends_post_with_payload(self, mock_urlopen):
         mock_urlopen.return_value = _fake_response({"success": True, "data": {"id": "p1"}})
         payload = {"name": "arr-stack", "composeContent": "x", "envContent": "y"}

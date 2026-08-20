@@ -41,13 +41,13 @@ def run(repo_root: Path, environ: dict[str, str]) -> int:
 
     client = ArcaneClient(arcane_url, api_key)
 
-    environment = find_environment(client.list_environments(), environment_name)
+    environment = find_environment(client.list_environments(search=environment_name), environment_name)
     if environment is None:
         print(f"No Arcane environment named {environment_name!r}", file=sys.stderr)
         return 1
     environment_id = environment["id"]
 
-    projects = client.list_projects(environment_id)
+    projects = client.list_projects(environment_id, search=project_name)
     existing = find_project(projects, project_name)
     payload = build_project_payload(project_name, compose_content, env_content)
 

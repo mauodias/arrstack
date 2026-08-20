@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -45,11 +46,17 @@ class ArcaneClient:
             error_body = error.read().decode("utf-8")
             raise RuntimeError(f"{method} {path} failed ({error.code}): {error_body}") from error
 
-    def list_environments(self) -> list[dict]:
-        return self._request("GET", "/environments")["data"] or []
+    def list_environments(self, search: str | None = None) -> list[dict]:
+        path = "/environments"
+        if search is not None:
+            path += f"?{urllib.parse.urlencode({'search': search})}"
+        return self._request("GET", path)["data"] or []
 
-    def list_projects(self, environment_id: str) -> list[dict]:
-        return self._request("GET", f"/environments/{environment_id}/projects")["data"] or []
+    def list_projects(self, environment_id: str, search: str | None = None) -> list[dict]:
+        path = f"/environments/{environment_id}/projects"
+        if search is not None:
+            path += f"?{urllib.parse.urlencode({'search': search})}"
+        return self._request("GET", path)["data"] or []
 
     def create_project(self, environment_id: str, payload: dict) -> dict:
         return self._request("POST", f"/environments/{environment_id}/projects", payload)["data"]
