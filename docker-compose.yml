@@ -24,3 +24,44 @@ services:
     # host, it does not clone the rest of the repo.
     command: ["sh", "-c", "wget -qO /tmp/init.sh https://raw.githubusercontent.com/mauodias/arrstack/main/bootstrap/init.sh && sh /tmp/init.sh"]
     restart: "no"
+
+  rclone-mount:
+    image: rclone/rclone:latest
+    container_name: arr-rclone
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      - RCLONE_CONFIG_HETZNER_BOX_TYPE=webdav
+      - RCLONE_CONFIG_HETZNER_BOX_URL=https://${HETZNER_STORAGEBOX_USER}.your-storagebox.de
+      - RCLONE_CONFIG_HETZNER_BOX_VENDOR=other
+      - RCLONE_CONFIG_HETZNER_BOX_USER=${HETZNER_STORAGEBOX_USER}
+      - RCLONE_CONFIG_HETZNER_BOX_PASS=${HETZNER_STORAGEBOX_PASS_OBSCURED}
+    volumes:
+      - ./data/rclone-cache:/cache
+      - /mnt/remote-media:/data:shared
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    command: >
+      mount hetzner-box: /data
+      --allow-other
+      --cache-dir /cache
+      --dir-cache-time 1000h
+      --attr-timeout 1s
+      --vfs-cache-mode full
+      --vfs-cache-max-age 24h
+      --vfs-cache-max-size 100G
+      --vfs-read-chunk-size 64M
+      --vfs-read-chunk-size-limit 1G
+      --buffer-size 32M
+      --umask 002
+    healthcheck:
+      test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
