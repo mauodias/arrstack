@@ -98,6 +98,8 @@ services:
       - SERVER_COUNTRIES=${SERVER_COUNTRIES}
       - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT}
       - FIREWALL_OUTBOUND_SUBNETS=100.64.0.0/10
+      # Allow inbound traffic to qBittorrent WebUI via Tailscale subnet route
+      - FIREWALL_INPUT_PORTS=8080
     restart: unless-stopped
 
   qbittorrent:
