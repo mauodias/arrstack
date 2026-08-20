@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  bootstrap:
+    image: alpine:latest
+    container_name: arr-bootstrap
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - .:/workspace
+      - /mnt/remote-media:/mnt/remote-media
+    command: ["sh", "/workspace/bootstrap/init.sh"]
+    restart: "no"
