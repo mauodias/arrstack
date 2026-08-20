@@ -864,7 +864,7 @@ is confirmed.
       bootstrap:
         condition: service_completed_successfully
     command: >
-      mount hetzner-box: /data
+      mount hetzner_box: /data
       --allow-other
       --cache-dir /cache
       --dir-cache-time 1000h
@@ -907,7 +907,7 @@ Run: `uv run deploy.py`
 Expected: `Status: ... | services: 2 | running: 1` (bootstrap has already
 exited; rclone-mount should be running and healthy).
 
-Verify via Arcane or on the VPS: `docker exec arr-rclone rclone about hetzner-box:`
+Verify via Arcane or on the VPS: `docker exec arr-rclone rclone about hetzner_box:`
 returns used/free totals (confirms the WebDAV credentials and connectivity
 are correct), and `ls /mnt/remote-media` on the host shows the mounted
 content. Do not proceed to Task 6 until this is confirmed.

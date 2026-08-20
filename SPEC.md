@@ -127,7 +127,7 @@ with Section 1.1's shared-volume-propagation principle.
 
 ### 4.1 Rclone Configuration (via environment variables — no config file)
 
-Rather than generating a `rclone.conf` file, the `hetzner-box` remote is
+Rather than generating a `rclone.conf` file, the `hetzner_box` remote is
 defined entirely through `RCLONE_CONFIG_<REMOTE>_<KEY>` environment
 variables, which rclone reads natively without any config file present.
 This removes a static secrets-bearing file from the picture altogether —
@@ -243,7 +243,7 @@ services:
       bootstrap:
         condition: service_completed_successfully
     command: >
-      mount hetzner-box: /data
+      mount hetzner_box: /data
       --allow-other
       --cache-dir /cache
       --dir-cache-time 1000h
@@ -675,7 +675,7 @@ Homepage (`gethomepage/homepage`) is configured with widgets pulling
 directly from each app's API:
 
 * **Storage:** remote Hetzner Storage Box used/free via `rclone about
-  hetzner-box:` (exposed through rclone's `--rc` HTTP API, enabled
+  hetzner_box:` (exposed through rclone's `--rc` HTTP API, enabled
   alongside the existing `mount` command in Section 5's `rclone-mount`
   service), plus **local VPS disk usage** for the `--vfs-cache` directory
   (Section 5) — tracked separately since the 100G cache (Section 5.1)
