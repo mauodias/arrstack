@@ -935,6 +935,7 @@ content. Do not proceed to Task 6 until this is confirmed.
       - TS_USERSPACE=false
     volumes:
       - ./config/tailscale:/var/lib/tailscale
+    devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
