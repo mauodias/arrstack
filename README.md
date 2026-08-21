@@ -63,9 +63,13 @@ Full architecture, rationale, and per-service configuration notes:
 - `.env.example` — template for the local `.env` (gitignored, never
   committed)
 - `bootstrap/init.sh` — idempotent setup that runs as a compose service on
-  every deploy: creates `config/`/`data/`/media directories, validates the
-  Hetzner env vars are set, and fetches `config/homepage/services.yaml`
-  from GitHub
+  every deploy: creates `config/`/`data/` directories (media directories
+  under `/mnt/remote-media` are created separately, by `rclone-mount`
+  itself over WebDAV — see `SPEC.md` Section 3.2), validates the Hetzner/
+  Lidarr/slskd env vars are set, fetches `config/homepage/services.yaml`
+  from GitHub, and templates `config/soularr/config.ini` from
+  `config/soularr/config.ini.template` (also fetched from GitHub) using
+  `LIDARR_API_KEY`/`SLSKD_API_KEY`
 - `config/homepage/services.yaml` — Homepage's dashboard tile definitions;
   the one file under `config/` that's committed to git rather than
   runtime state (everything else under `config/` is gitignored)
@@ -73,9 +77,13 @@ Full architecture, rationale, and per-service configuration notes:
   `.env` parsing, `client.py` for the Arcane API, `cli.py` for the
   entrypoint logic)
 - `deploy.py` — thin entrypoint: `uv run deploy.py`
-- `setup-host.sh` — one-time host script (loads `fuse`/`tun` kernel
-  modules, makes `/mnt` a shared mount point) — the one step that requires
-  SSH
+- `setup-host.sh` — one-time (idempotent, safe to rerun) host script:
+  loads `fuse`/`tun` kernel modules, makes `/mnt` a shared mount point,
+  and makes `/mnt/remote-media` its own shared self-bind mount (required
+  for `rclone-mount`'s FUSE mount to actually propagate into sibling
+  containers — a plain directory has no propagation state on its own),
+  installing a systemd unit so all of it survives a reboot — the one step
+  that requires SSH
 - `tests/` — `unittest`-based tests for `arcane_deploy/` plus a shell test
   for `bootstrap/init.sh`
 
@@ -86,13 +94,19 @@ Full architecture, rationale, and per-service configuration notes:
    `rclone obscure '<password>'` and paste the *obscured* output into
    `HETZNER_STORAGEBOX_PASS_OBSCURED` — never the plaintext), a Tailscale
    auth key, AirVPN WireGuard config, Soulseek/slskd credentials, and the
-   `HOMEPAGE_VAR_*` API keys (see below). `.env` is gitignored and never
-   enters version control.
+   `LIDARR_API_KEY` (a placeholder is fine for now — see Post-deployment
+   step 4 below) and `SLSKD_API_KEY` non-empty (`bootstrap` fails otherwise).
+   The `HOMEPAGE_VAR_*` API keys can't be filled in yet — they only exist
+   after each app's own first-run setup (see Post-deployment setup below);
+   leave them blank for now. `.env` is gitignored and never enters version
+   control.
 2. SSH into the VPS once and run `sudo bash setup-host.sh`. This loads the
-   `fuse`/`tun` kernel modules and makes `/mnt` a shared mount point (with
-   a systemd unit so it survives reboots) — see `SPEC.md` for why this is
-   needed. This is the only step in the whole workflow that touches the
-   host over SSH.
+   `fuse`/`tun` kernel modules and makes both `/mnt` and
+   `/mnt/remote-media` shared mount points (with a systemd unit so it
+   survives reboots) — see `SPEC.md` Section 3.1 for why this is needed.
+   This is the only step in the whole workflow that touches the host over
+   SSH, and it's idempotent — safe to rerun any time (e.g. after a full
+   config wipe) if you're ever unsure of its state.
 3. Run `uv run deploy.py` to push `docker-compose.yml` and `.env` to
    Arcane and deploy the stack.
 

@@ -58,12 +58,30 @@ This specification defines the deployment of an automated media acquisition and 
  |  Gluetun VPN      | <================ Encrypted Tunnel ================> [ AirVPN Servers ]
  |  (Sidecar)        |                     (WireGuard)                        (Static Port Open)
  +---------+---------+
-           | (network_mode: "service:gluetun")
+           | (network_mode: "service:gluetun", static IP 172.28.0.10
+           |  on the `vpn_net` bridge, FIREWALL_INPUT_PORTS=8080)
  +---------v---------+
  |    qBittorrent    |
  |  (Port 8080/tcp)  |
  +-------------------+
 ```
+
+**qBittorrent reachability (Tailscale subnet route, not netns sharing):**
+gluetun/qBittorrent are deliberately kept off the Tailscale sidecar's
+network namespace — merging them would route Prowlarr/Radarr/Sonarr's
+normal traffic through the VPN tunnel too, which is not what any of those
+apps want. Instead, qBittorrent is reached via a Tailscale **subnet
+route**: `gluetun` and `qbittorrent` share a namespace on a dedicated
+Docker bridge network (`vpn_net`, `172.28.0.0/24`, gluetun statically
+assigned `172.28.0.10`); the `tailscale` container is multi-homed onto
+both its default network *and* `vpn_net`, and advertises
+`--advertise-routes=172.28.0.0/24` (with IP-forwarding sysctls enabled).
+That route must be approved once in the Tailscale admin console. gluetun's
+own firewall additionally requires `FIREWALL_INPUT_PORTS=8080` to accept
+that inbound traffic. Once approved, qBittorrent's WebUI is reachable
+directly at `172.28.0.10:8080` — including from sibling containers that
+share the Tailscale netns (Radarr/Sonarr/Lidarr), since they inherit
+tailscale's network interfaces, `vpn_net` included.
 
 Seerr, Lidarr, slskd, Navidrome, and Jellyfin all sit on the Tailscale
 sidecar's network like the existing apps (Section 1.1: zero public
@@ -88,12 +106,14 @@ Before executing the deployment stack via Docker Compose / Arcane, the executing
    sudo modprobe fuse
    sudo modprobe tun
    ```
-2. **Mount Propagation Root:** Ensure the parent mount point on the host supports shared mount propagation so Docker can propagate FUSE mounts across container namespaces.
+2. **Mount Propagation Root:** Ensure the parent mount point on the host supports shared mount propagation so Docker can propagate FUSE mounts across container namespaces. This is two steps, not one — `mount --make-rshared /mnt` alone is insufficient, since `/mnt/remote-media` itself was never a mountpoint (a plain directory has no propagation state to mark shared; it must first become a self-bind mount):
    ```bash
-   sudo mkdir -p /mnt/remote-media
    sudo mount --make-rshared /mnt
+   sudo mkdir -p /mnt/remote-media
+   sudo mountpoint -q /mnt/remote-media || sudo mount --bind /mnt/remote-media /mnt/remote-media
+   sudo mount --make-shared /mnt/remote-media
    ```
-   *To make this persistent across reboot, add `mount --make-rshared /` or `/mnt` to system boot scripts or systemd.*
+   Persisted via a systemd unit (`mnt-make-rshared.service`, installed by `setup-host.sh`, Section 11.1) that reruns all four commands before `docker.service` starts, since none of this state survives a reboot on its own.
 
 ### 3.2 Directory Hierarchy
 
@@ -162,36 +182,67 @@ The resulting values go into `.env` (Section 4.2) as
 
 ### 4.2 Environment Variables (`./.env`, project-relative)
 ```env
+# --- Core (Section 4.2) ---
 PUID=1000
 PGID=1000
 TZ=Europe/Amsterdam
 STORAGE_PATH=/mnt/remote-media
-TS_AUTHKEY=tskey-auth-kXXXXXX-XXXXXXXXXXXXXXXXX
 
-# Hetzner Storage Box (rclone remote, Section 4.1 — no rclone.conf file)
-HETZNER_STORAGEBOX_USER=<your-username>
-HETZNER_STORAGEBOX_PASS_OBSCURED=<output-of-rclone-obscure>
+# --- Arcane API (Section 9.2) ---
+ARCANE_URL=https://arcane.example.com/api
+ARCANE_API_TOKEN=
+ARCANE_ENVIRONMENT_NAME=
+ARCANE_PROJECT_NAME=arr-stack
 
-# AirVPN / Gluetun Configuration
+# --- Hetzner Storage Box / rclone (Section 4.1) ---
+# Generate HETZNER_STORAGEBOX_PASS_OBSCURED with: rclone obscure '<password>'
+HETZNER_STORAGEBOX_USER=
+HETZNER_STORAGEBOX_PASS_OBSCURED=
+
+# --- Tailscale ---
+TS_AUTHKEY=
+
+# --- AirVPN / Gluetun ---
 VPN_SERVICE_PROVIDER=airvpn
 VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-WIREGUARD_PRESHARED_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-WIREGUARD_ADDRESSES=10.xx.xx.xx/32
+WIREGUARD_PRIVATE_KEY=
+WIREGUARD_PRESHARED_KEY=
+WIREGUARD_ADDRESSES=
 SERVER_COUNTRIES=Netherlands,Switzerland
-AIRVPN_FORWARDED_PORT=48291
+AIRVPN_FORWARDED_PORT=
 
-# Soulseek (slskd) Configuration
+# --- Soulseek (slskd) ---
 # Web UI login (slskd dashboard access)
-SLSKD_USERNAME=<your-web-ui-username>
-SLSKD_PASSWORD=<your-web-ui-password>
-SLSKD_API_KEY=<generated-api-key-for-soularr>
+SLSKD_USERNAME=
+SLSKD_PASSWORD=
+SLSKD_API_KEY=
 # Soulseek network login (P2P network connection)
-SLSKD_SLSK_USERNAME=<your-soulseek-network-username>
-SLSKD_SLSK_PASSWORD=<your-soulseek-network-password>
+SLSKD_SLSK_USERNAME=
+SLSKD_SLSK_PASSWORD=
 
-# Jellyfin
+# --- Lidarr / soularr ---
+# LIDARR_API_KEY is found in Lidarr's Settings -> General, after first
+# startup. Used to generate config/soularr/config.ini during bootstrap.
+LIDARR_API_KEY=
+
+# --- Jellyfin ---
 JELLYFIN_PUBLISHED_SERVER_URL=http://arr-vps:8096
+
+# --- Homepage dashboard widget API keys ---
+# Each value is the target app's own API key, found in that app's
+# Settings/General page (Prowlarr, Radarr, Sonarr, Lidarr) or
+# Settings/Notifications->API key (Seerr), or slskd's SLSKD_API_KEY value,
+# or Jellyfin's API key (Dashboard -> API Keys).
+# Navidrome is intentionally not included: its Homepage widget requires
+# manual Subsonic-style token/salt setup rather than a simple API key
+# (see config/homepage/services.yaml for details).
+HOMEPAGE_VAR_PROWLARR_KEY=
+HOMEPAGE_VAR_RADARR_KEY=
+HOMEPAGE_VAR_SONARR_KEY=
+HOMEPAGE_VAR_SEERR_KEY=
+HOMEPAGE_VAR_LIDARR_KEY=
+HOMEPAGE_VAR_SLSKD_KEY=
+HOMEPAGE_VAR_JELLYFIN_KEY=
 ```
 
 ### 4.3 Principle: Per-Service Environment Scoping
@@ -219,27 +270,36 @@ Save as `docker-compose.yml` at the project root:
 version: "3.8"
 
 services:
-  # ---------------------------------------------------------------------------
-  # 0. BOOTSTRAP (idempotent directory/permissions init, Section 11)
-  # ---------------------------------------------------------------------------
   bootstrap:
     image: alpine:latest
     container_name: arr-bootstrap
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
+      - HETZNER_STORAGEBOX_USER=${HETZNER_STORAGEBOX_USER}
+      - HETZNER_STORAGEBOX_PASS_OBSCURED=${HETZNER_STORAGEBOX_PASS_OBSCURED}
+      - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - SLSKD_API_KEY=${SLSKD_API_KEY}
     volumes:
       - .:/workspace
       - /mnt/remote-media:/mnt/remote-media
-    command: ["sh", "/workspace/bootstrap/init.sh"]
+    # NOTE: bootstrap/init.sh is fetched from GitHub at container start rather
+    # than being embedded here, so this file and the script never drift out
+    # of sync (see commit history: this replaced an earlier approach that
+    # inlined the script's full contents into `command:`).
+    #
+    # Operational tradeoff: this makes bootstrap depend on the repo being
+    # pushed to GitHub's `main` branch. A local edit to bootstrap/init.sh will
+    # NOT take effect on the next deploy until it is pushed to `main` —
+    # Arcane's deploy API only provisions docker-compose.yml and .env on the
+    # host, it does not clone the rest of the repo.
+    command: ["sh", "-c", "wget -qO /tmp/init.sh https://raw.githubusercontent.com/mauodias/arrstack/main/bootstrap/init.sh && sh /tmp/init.sh"]
     restart: "no"
 
-  # ---------------------------------------------------------------------------
-  # 1. STORAGE LAYER (rclone FUSE Mount)
-  # ---------------------------------------------------------------------------
   rclone-mount:
     image: rclone/rclone:latest
     container_name: arr-rclone
+    entrypoint: [""]
     cap_add:
       - SYS_ADMIN
     devices:
@@ -258,25 +318,7 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: >
-      sh -c "rclone mkdir hetzner_box:movies;
-      rclone mkdir hetzner_box:tv;
-      rclone mkdir hetzner_box:music;
-      rclone mkdir hetzner_box:downloads;
-      fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true;
-      exec rclone
-      mount hetzner_box: /data
-      --allow-other
-      --cache-dir /cache
-      --dir-cache-time 1000h
-      --attr-timeout 1s
-      --vfs-cache-mode full
-      --vfs-cache-max-age 24h
-      --vfs-cache-max-size 100G
-      --vfs-read-chunk-size 64M
-      --vfs-read-chunk-size-limit 1G
-      --buffer-size 32M
-      --umask 002"
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; exec rclone mount hetzner_box: /data --allow-other --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
@@ -284,9 +326,6 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
-  # 2. NETWORK LAYER (Tailscale Sidecar)
-  # ---------------------------------------------------------------------------
   tailscale:
     image: tailscale/tailscale:latest
     container_name: arr-tailscale
@@ -295,21 +334,25 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--advertise-routes=172.28.0.0/24
     volumes:
       - ./config/tailscale:/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      default: {}
+      vpn_net: {}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
-  # 3. VPN PROTECTION LAYER (AirVPN Gluetun Gateway)
-  # ---------------------------------------------------------------------------
   gluetun:
     image: qmcgaw/gluetun:latest
     container_name: arr-gluetun
@@ -317,6 +360,9 @@ services:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    networks:
+      vpn_net:
+        ipv4_address: 172.28.0.10
     environment:
       - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
       - VPN_TYPE=${VPN_TYPE}
@@ -324,15 +370,31 @@ services:
       - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
       - SERVER_COUNTRIES=${SERVER_COUNTRIES}
-      # Open AirVPN static port in Gluetun firewall
       - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT}
-      # Allows Tailscale network range (100.64.0.0/10) to access WebUI without bypassing VPN
       - FIREWALL_OUTBOUND_SUBNETS=100.64.0.0/10
+      # Allow inbound traffic to qBittorrent WebUI via Tailscale subnet route
+      - FIREWALL_INPUT_PORTS=8080
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
-  # 4. APPLICATION LAYER
-  # ---------------------------------------------------------------------------
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: arr-qbittorrent
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - /mnt/remote-media/downloads:/downloads:rslave
+    depends_on:
+      gluetun:
+        condition: service_started
+      rclone-mount:
+        condition: service_healthy
+    restart: unless-stopped
+
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: arr-prowlarr
@@ -447,6 +509,9 @@ services:
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
+      # Enable Web UI to persist configuration changes (shared folders, download prefs, etc).
+      # Safe here because Web UI access is restricted to Tailscale-only, never public internet.
+      - SLSKD_REMOTE_CONFIGURATION=true
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
@@ -466,6 +531,7 @@ services:
       - SCRIPT_INTERVAL=300
     volumes:
       - ./config/soularr:/data
+      - /mnt/remote-media/downloads:/downloads:rslave
     depends_on:
       lidarr:
         condition: service_started
@@ -522,6 +588,13 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
       - HOMEPAGE_ALLOWED_HOSTS=arr-vps:3000
+      - HOMEPAGE_VAR_PROWLARR_KEY=${HOMEPAGE_VAR_PROWLARR_KEY}
+      - HOMEPAGE_VAR_RADARR_KEY=${HOMEPAGE_VAR_RADARR_KEY}
+      - HOMEPAGE_VAR_SONARR_KEY=${HOMEPAGE_VAR_SONARR_KEY}
+      - HOMEPAGE_VAR_SEERR_KEY=${HOMEPAGE_VAR_SEERR_KEY}
+      - HOMEPAGE_VAR_LIDARR_KEY=${HOMEPAGE_VAR_LIDARR_KEY}
+      - HOMEPAGE_VAR_SLSKD_KEY=${HOMEPAGE_VAR_SLSKD_KEY}
+      - HOMEPAGE_VAR_JELLYFIN_KEY=${HOMEPAGE_VAR_JELLYFIN_KEY}
     volumes:
       - ./config/homepage:/app/config
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -530,24 +603,12 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: arr-qbittorrent
-    network_mode: "service:gluetun"
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - WEBUI_PORT=8080
-    volumes:
-      - ./config/qbittorrent:/config
-      - /mnt/remote-media/downloads:/downloads:rslave
-    depends_on:
-      gluetun:
-        condition: service_started
-      rclone-mount:
-        condition: service_healthy
-    restart: unless-stopped
+networks:
+  vpn_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 ```
 
 ---
@@ -597,7 +658,13 @@ services:
 3. **App-to-App Interconnection:**
    * Radarr/Sonarr/Lidarr to Prowlarr: `http://127.0.0.1:9696`
    * Prowlarr to FlareSolverr: `http://127.0.0.1:8191` (proxy for Cloudflare-protected indexers)
-   * Radarr/Sonarr to qBittorrent: `http://arr-gluetun:8080` (or Gluetun bridge IP)
+   * Radarr/Sonarr/Lidarr to qBittorrent: `http://172.28.0.10:8080` (gluetun's
+     static `vpn_net` IP — reachable directly since these apps share the
+     Tailscale sidecar's netns, which is multi-homed onto `vpn_net`, per the
+     qBittorrent-reachability note in Section 2; **not** `arr-vps:8080`,
+     which is for external/browser access via the Tailscale subnet route,
+     not container-to-container). The download client field takes
+     qBittorrent's WebUI username/password — there is no API-key option.
    * Seerr to Radarr/Sonarr: `http://127.0.0.1:7878` / `http://127.0.0.1:8989`
      (all share the Tailscale sidecar's network namespace, so app-to-app
      calls use `127.0.0.1` with the target app's port, not container names)
@@ -629,6 +696,21 @@ progress, ratings) would need a one-time migration of the Calibre library
 database onto the rclone mount so Calibre-Web can serve it remotely
 going forward, rather than an ongoing two-way sync with the local
 Calibre install.
+
+### 8.2 Backlog (deferred until the current pipeline is stable)
+
+* **Bazarr** (subtitles): would slot in alongside Radarr/Sonarr (same
+  Servarr model — pulls subtitles for content those two already manage).
+  Needs a design pass on which arr apps it hooks into, its own indexer/
+  provider config, and where its container fits network/volume-wise
+  before it's added to Section 5.
+* **Homepage Storage Box widget:** replace (or supplement) the local-disk
+  `resources` widget noted in Section 10.1 with actual Hetzner Storage Box
+  used/free — likely via `rclone about hetzner_box:` over rclone's `--rc`
+  HTTP API, which would need to be enabled on `rclone-mount` (not
+  currently in Section 5). Not yet investigated for feasibility as a
+  Homepage widget type; may need a small custom integration rather than a
+  built-in widget.
 
 ---
 
@@ -714,18 +796,25 @@ the stack has multiple end users (Section 10.3).
 Homepage (`gethomepage/homepage`) is configured with widgets pulling
 directly from each app's API:
 
-* **Storage:** remote Hetzner Storage Box used/free via `rclone about
-  hetzner_box:` (exposed through rclone's `--rc` HTTP API, enabled
-  alongside the existing `mount` command in Section 5's `rclone-mount`
-  service), plus **local VPS disk usage** for the `--vfs-cache` directory
-  (Section 5) — tracked separately since the 100G cache (Section 5.1)
-  lives on the VPS's own disk, not the Storage Box, and filling it can
-  break writes even while the Storage Box itself has room.
+* **Storage:** currently shows **local VPS disk usage only** (Homepage's
+  stock `resources` widget), which is misleading for the mounted media
+  path since `/mnt/remote-media` is remote Storage Box capacity, not local
+  disk. A Storage Box used/free widget (via `rclone about hetzner_box:`,
+  which needs rclone's `--rc` HTTP API enabled alongside the existing
+  `mount` command — not currently in Section 5's `rclone-mount` service)
+  is tracked as backlog, Section 8.2. Local VPS disk usage for the
+  `--vfs-cache` directory remains worth showing regardless once the
+  remote widget exists — the 100G cache lives on the VPS's own disk, not
+  the Storage Box, and filling it can break writes even while the Storage
+  Box itself has room.
 * **Queues/activity:** Radarr, Sonarr, Lidarr wanted/queue counts;
   Prowlarr indexer health; qBittorrent active torrents and ratio; slskd
   active transfers.
 * **Now playing:** Jellyfin and Navidrome current sessions.
 * **Requests:** Seerr pending request count.
+* **soularr:** plain link only (no widget — it has no stats API), for
+  quick access to its minimal UI at `:8265`, which shows the generated
+  `config.ini`.
 
 ### 10.2 Placement
 
