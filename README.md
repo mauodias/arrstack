@@ -155,8 +155,14 @@ the same Settings page you're already on.
 
    **On a host that previously ran with remote configuration enabled**, an
    existing `config/slskd/slskd.yml` will keep overriding the compose
-   settings. Check whether its `soulseek.username`/`password` match `.env`,
-   then delete it and redeploy so the environment variables take effect.
+   settings, and must be deleted for the environment variables to take
+   effect. Before deleting it, read `soulseek.username`/`soulseek.password`
+   out of it and make sure those exact values are in `.env` — if the
+   credentials were originally typed into the Web UI, that file is the
+   *only* place they exist, and deleting it without copying them first
+   drops slskd off the Soulseek network. A Soulseek username is claimed by
+   whichever password first logged in with it, so the password in
+   `slskd.yml` is authoritative; it cannot be regenerated or guessed.
 
 4. **Radarr** (`:7878`) / **Sonarr** (`:8989`) / **Lidarr** (`:8686`) —
    *requires: step 2.* Each app's first visit prompts you to set an
