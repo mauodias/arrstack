@@ -205,6 +205,13 @@ ARCANE_PROJECT_NAME=arr-stack
 # Generate HETZNER_STORAGEBOX_PASS_OBSCURED with: rclone obscure '<password>'
 HETZNER_STORAGEBOX_USER=
 HETZNER_STORAGEBOX_PASS_OBSCURED=
+# rclone's --rc HTTP API (Section 10.1) — internal-network-only, used by the
+# Homepage Storage Box widget to query used/free/total space. Any random
+# credential works (rclone just needs SOME auth here, never --rc-no-auth,
+# since a shell-equivalent API must not be exposed unauthenticated even on
+# an internal network). Generate with: openssl rand -base64 24 | tr -d '=+/' | cut -c1-24
+RCLONE_RC_USER=
+RCLONE_RC_PASS=
 
 # --- Tailscale ---
 TS_AUTHKEY=
@@ -320,13 +327,15 @@ services:
       - RCLONE_CONFIG_HETZNER_BOX_VENDOR=other
       - RCLONE_CONFIG_HETZNER_BOX_USER=${HETZNER_STORAGEBOX_USER}
       - RCLONE_CONFIG_HETZNER_BOX_PASS=${HETZNER_STORAGEBOX_PASS_OBSCURED}
+      - RCLONE_RC_USER=${RCLONE_RC_USER}
+      - RCLONE_RC_PASS=${RCLONE_RC_PASS}
     volumes:
       - ./data/rclone-cache:/cache
       - /mnt/remote-media:/data:shared
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --rc --rc-addr :5572 --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
@@ -623,6 +632,8 @@ services:
       - HOMEPAGE_VAR_RADARR_KEY=${HOMEPAGE_VAR_RADARR_KEY}
       - HOMEPAGE_VAR_SONARR_KEY=${HOMEPAGE_VAR_SONARR_KEY}
       - HOMEPAGE_VAR_BAZARR_KEY=${HOMEPAGE_VAR_BAZARR_KEY}
+      - HOMEPAGE_VAR_RCLONE_RC_USER=${RCLONE_RC_USER}
+      - HOMEPAGE_VAR_RCLONE_RC_PASS=${RCLONE_RC_PASS}
       - HOMEPAGE_VAR_SEERR_KEY=${HOMEPAGE_VAR_SEERR_KEY}
       - HOMEPAGE_VAR_LIDARR_KEY=${HOMEPAGE_VAR_LIDARR_KEY}
       - HOMEPAGE_VAR_SLSKD_KEY=${HOMEPAGE_VAR_SLSKD_KEY}
@@ -729,15 +740,6 @@ database onto the rclone mount so Calibre-Web can serve it remotely
 going forward, rather than an ongoing two-way sync with the local
 Calibre install.
 
-### 8.2 Backlog (deferred until the current pipeline is stable)
-
-* **Homepage Storage Box widget:** replace (or supplement) the local-disk
-  `resources` widget noted in Section 10.1 with actual Hetzner Storage Box
-  used/free — likely via `rclone about hetzner_box:` over rclone's `--rc`
-  HTTP API, which would need to be enabled on `rclone-mount` (not
-  currently in Section 5). Not yet investigated for feasibility as a
-  Homepage widget type; may need a small custom integration rather than a
-  built-in widget.
 
 ---
 
@@ -823,17 +825,20 @@ the stack has multiple end users (Section 10.3).
 Homepage (`gethomepage/homepage`) is configured with widgets pulling
 directly from each app's API:
 
-* **Storage:** currently shows **local VPS disk usage only** (Homepage's
-  stock `resources` widget), which is misleading for the mounted media
-  path since `/mnt/remote-media` is remote Storage Box capacity, not local
-  disk. A Storage Box used/free widget (via `rclone about hetzner_box:`,
-  which needs rclone's `--rc` HTTP API enabled alongside the existing
-  `mount` command — not currently in Section 5's `rclone-mount` service)
-  is tracked as backlog, Section 8.2. Local VPS disk usage for the
-  `--vfs-cache` directory remains worth showing regardless once the
-  remote widget exists — the 100G cache lives on the VPS's own disk, not
-  the Storage Box, and filling it can break writes even while the Storage
-  Box itself has room.
+* **Storage:** actual Hetzner Storage Box used/free/total, via a Homepage
+  `customapi` widget (`config/homepage/services.yaml`) that calls
+  `rclone-mount`'s own `--rc` HTTP API (`--rc --rc-addr :5572`, Section 5)
+  at its internal Docker DNS name `http://arr-rclone:5572/operations/about`
+  — reachable only within the internal Docker network (no published port),
+  authenticated with `RCLONE_RC_USER`/`RCLONE_RC_PASS` (Section 4.2; rclone's
+  rc API is explicitly documented as shell-equivalent access, so it's never
+  run with `--rc-no-auth`, even though it's already internal-network-only).
+  Homepage passes those same credentials through as
+  `HOMEPAGE_VAR_RCLONE_RC_USER`/`HOMEPAGE_VAR_RCLONE_RC_PASS`. This shows
+  remote capacity only — local VPS disk usage for the `--vfs-cache`
+  directory (which can independently fill up and break writes even while
+  the Storage Box itself has room) isn't covered by this widget and would
+  need Homepage's separate `resources`/`disk` widget type if wanted later.
 * **Queues/activity:** Radarr, Sonarr, Lidarr wanted/queue counts;
   Prowlarr indexer health; qBittorrent active torrents and ratio; slskd
   active transfers.

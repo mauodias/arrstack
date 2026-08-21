@@ -96,7 +96,11 @@ Full architecture, rationale, and per-service configuration notes:
    `HETZNER_STORAGEBOX_PASS_OBSCURED` — never the plaintext), a Tailscale
    auth key, AirVPN WireGuard config, Soulseek/slskd credentials, and the
    `LIDARR_API_KEY` (a placeholder is fine for now — see Post-deployment
-   step 4 below) and `SLSKD_API_KEY` non-empty (`bootstrap` fails otherwise).
+   step 4 below) and `SLSKD_API_KEY` non-empty (`bootstrap` fails otherwise),
+   and `RCLONE_RC_USER`/`RCLONE_RC_PASS` (any random credential — this
+   authenticates rclone's internal-only `--rc` API, used by Homepage's
+   Storage Box widget; generate with
+   `openssl rand -base64 24 | tr -d '=+/' | cut -c1-24`).
    The `HOMEPAGE_VAR_*` API keys can't be filled in yet — they only exist
    after each app's own first-run setup (see Post-deployment setup below);
    leave them blank for now. `.env` is gitignored and never enters version
@@ -247,7 +251,13 @@ For Homepage's dashboard tiles to show live stats, add each app's own API
 key to `.env` as `HOMEPAGE_VAR_<APP>_KEY` (e.g. `HOMEPAGE_VAR_RADARR_KEY`).
 Find each key on the app's own Settings/General page (Prowlarr, Radarr,
 Sonarr, Lidarr), Settings → Notifications → API key (Seerr), the
-`SLSKD_API_KEY` value (slskd), or Dashboard → API Keys (Jellyfin). Navidrome
-is intentionally left out — its widget needs manual Subsonic-style
-token/salt setup instead of a simple API key; see
-`config/homepage/services.yaml` for details.
+`SLSKD_API_KEY` value (slskd), Dashboard → API Keys (Jellyfin), or
+Settings → General → Security (Bazarr). Navidrome is intentionally left
+out — its widget needs manual Subsonic-style token/salt setup instead of
+a simple API key; see `config/homepage/services.yaml` for details.
+
+The Storage tile (Hetzner Storage Box used/free/total) doesn't use an
+app API key — it queries `rclone-mount`'s own `--rc` HTTP API directly
+over the internal Docker network (never published externally), using
+`RCLONE_RC_USER`/`RCLONE_RC_PASS` from `.env` (any random credential;
+see First-time setup above).

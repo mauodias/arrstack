@@ -14,6 +14,30 @@
 # Homepage substitutes at runtime from HOMEPAGE_VAR_* environment variables
 # (see docker-compose.yml's homepage service and .env.example).
 
+- Storage:
+    - Hetzner Storage Box:
+        icon: hetzner.png
+        widget:
+          type: customapi
+          url: http://arr-rclone:5572/operations/about
+          method: POST
+          username: "{{HOMEPAGE_VAR_RCLONE_RC_USER}}"
+          password: "{{HOMEPAGE_VAR_RCLONE_RC_PASS}}"
+          headers:
+            Content-Type: application/json
+          requestBody:
+            fs: "hetzner_box:"
+          mappings:
+            - field: used
+              label: Used
+              format: bytes
+            - field: free
+              label: Free
+              format: bytes
+            - field: total
+              label: Total
+              format: bytes
+
 - Media Stack:
     - Prowlarr:
         href: http://arr-vps:9696
