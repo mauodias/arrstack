@@ -239,6 +239,12 @@ SLSKD_SLSK_PASSWORD=
 # startup. Used to generate config/soularr/config.ini during bootstrap.
 LIDARR_API_KEY=
 
+# --- Navidrome / Last.fm ---
+# Free API account: https://www.last.fm/api/account/create
+# (only "Application name" is required)
+ND_LASTFM_APIKEY=
+ND_LASTFM_SECRET=
+
 # --- Jellyfin ---
 JELLYFIN_PUBLISHED_SERVER_URL=http://arr-vps:8096
 
@@ -617,6 +623,13 @@ services:
     environment:
       - ND_LOGLEVEL=info
       - TZ=${TZ}
+      # Last.fm as a metadata agent (artist bios, similar artists/songs,
+      # album covers — deezer,lastfm,listenbrainz is Navidrome's default
+      # agent chain). Per-user scrobbling is a separate opt-in each user
+      # enables in their own Navidrome profile; these keys only make the
+      # agent available, they don't scrobble anything by themselves.
+      - ND_LASTFM_APIKEY=${ND_LASTFM_APIKEY}
+      - ND_LASTFM_SECRET=${ND_LASTFM_SECRET}
     volumes:
       - ./config/navidrome:/data
       - /mnt/remote-media/music:/music:rslave

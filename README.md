@@ -223,7 +223,14 @@ the same Settings page you're already on.
    libraries together, no per-library scheduling exists.
 8. **Navidrome** (`:4533`) — *requires: nothing.* Points at `/music`;
    rescans automatically. Intentionally not on Homepage (its widget needs
-   manual Subsonic-style token/salt setup, not a simple API key).
+   manual Subsonic-style token/salt setup, not a simple API key). If
+   `ND_LASTFM_APIKEY`/`ND_LASTFM_SECRET` are set in `.env` (free account:
+   https://www.last.fm/api/account/create), Last.fm is available as a
+   metadata agent — artist bios, similar artists/songs, album covers —
+   automatically, nothing to click here. Scrobbling is separate and
+   per-user: each person connects their own Last.fm account under their
+   own Navidrome profile (top-right avatar → Settings → Last.fm), not
+   something the operator sets up once for everyone.
 9. **soularr** — *requires: steps 3 and 4 (Lidarr's `LIDARR_API_KEY` must
    already be in `.env` and redeployed, and slskd must be up).* Mostly
    headless, but it does serve a minimal Web UI at `:8265` — there's little
