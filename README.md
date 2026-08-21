@@ -13,7 +13,7 @@ Full architecture, rationale, and per-service configuration notes:
 
 ## Applications
 
-17 services, all defined in `docker-compose.yml`.
+16 services, all defined in `docker-compose.yml`.
 
 ### Infrastructure
 
