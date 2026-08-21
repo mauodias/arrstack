@@ -61,21 +61,16 @@ def run(repo_root: Path, environ: dict[str, str]) -> int:
         print(f"Updating project {project_name!r}...")
         project = client.update_project(environment_id, existing["id"], payload)
         project_id = project["id"]
-        # Arcane's single "redeploy" action (down + up atomically on
-        # Arcane's side), not our own separate down() + up() calls. That
-        # split was tried briefly to force full container recreation on
-        # every deploy, but it introduced a real regression: three separate
-        # HTTP round-trips (update, down, up) opened a window where "up" ran
-        # before Arcane had finished materializing the just-updated env,
-        # so containers came up with empty environment variables (observed:
-        # HETZNER_STORAGEBOX_USER resolved empty, not merely unresolved —
-        # confirmed via `docker inspect`). The original problem the split
-        # was meant to fix (stale bind mounts surviving an update) turned
-        # out to have unrelated root causes, fixed separately in
-        # rclone-mount's own startup command — so the split bought nothing
-        # and cost this atomicity guarantee.
+        # Explicit down + up (not the single "redeploy" action) so every
+        # container is guaranteed to be recreated fresh on every deploy —
+        # a container left running across an update keeps its bind mounts
+        # frozen at whatever the host mount state was when it was created,
+        # which silently breaks propagation-dependent mounts after a host
+        # config change (see SPEC.md Section 3.1).
+        print("Bringing down existing containers...")
+        client.down_project(environment_id, project_id)
         print("Deploying...")
-        client.deploy_project(environment_id, project_id, redeploy=True)
+        client.deploy_project(environment_id, project_id, redeploy=False)
 
     final = client.get_project(environment_id, project_id)
     print(
