@@ -117,46 +117,70 @@ the same Settings page you're already on.
    Radarr/Sonarr/Lidarr, since their download-client setup (step 4) points
    at it. No API key needed for its Homepage tile (widget uses your
    qBittorrent login instead).
-3. **slskd** (`:5030`) — *requires: step 1.* Confirm it connected to the
-   Soulseek network (its own `SLSKD_SLSK_USERNAME`/`PASSWORD` in `.env`,
-   distinct from the Web UI login). `SLSKD_REMOTE_CONFIGURATION=true` lets
-   you edit settings from the Web UI directly. Its `HOMEPAGE_VAR_SLSKD_KEY`
+3. **slskd** (`:5030`) — *requires: step 1.* `SLSKD_SLSK_USERNAME`/`PASSWORD`
+   in `.env` set the Soulseek network login, but you must also re-enter (or
+   confirm) them under Settings → Soulseek in the Web UI itself — the env
+   vars alone don't guarantee a connection. `SLSKD_REMOTE_CONFIGURATION=true`
+   is what makes that Settings page editable. Its `HOMEPAGE_VAR_SLSKD_KEY`
    is just `SLSKD_API_KEY`, already set. Do this before soularr (step 8).
 4. **Radarr** (`:7878`) / **Sonarr** (`:8989`) / **Lidarr** (`:8686`) —
-   *requires: step 2.* Each needs a root folder (`/movies`, `/tv`, `/music`)
-   and a download client pointing at qBittorrent (host `arr-vps`, port
-   `8080`, your qBittorrent credentials). Grab each app's API key
-   (Settings → General) for its `HOMEPAGE_VAR_*_KEY`. For **Lidarr**
-   specifically, also copy its key into `.env`'s `LIDARR_API_KEY` (bootstrap
-   uses it to template `config/soularr/config.ini` — until set, soularr
-   can't authenticate; a placeholder value unblocks the deploy itself if
-   Lidarr hasn't started yet, swap in the real key and redeploy again once
-   reachable) and redeploy (`uv run deploy.py`) before step 8. All three of
-   these must exist before Prowlarr's app sync (step 5) or Seerr's
-   connections (step 9) can point at them.
-5. **Prowlarr** (`:9696`) — *requires: step 4.* Add indexers, then
-   Settings → Apps → sync Radarr/Sonarr/Lidarr so indexers propagate to all
-   three automatically — this needs those three already reachable with
-   known API keys. Grab its own API key (Settings → General) for
-   `HOMEPAGE_VAR_PROWLARR_KEY`.
-6. **Jellyfin** (`:8096`) — *requires: nothing (independent of the arr apps'
-   config, only needs the filesystem).* Run the setup wizard, add `/movies`,
-   `/tv` as libraries, then Dashboard → Libraries → Scan All Libraries after
-   any new download. Generate an API key (Dashboard → API Keys) for
-   `HOMEPAGE_VAR_JELLYFIN_KEY`.
+   *requires: step 2.* Each app's first visit prompts you to set an
+   authentication username/password — do this before anything else. Then:
+   a root folder each (`/movies`, `/tv`, `/music`), and a download client
+   pointing at qBittorrent. **Use qBittorrent's internal address
+   `172.28.0.10:8080`, not `arr-vps:8080`** — Radarr/Sonarr/Lidarr share
+   Tailscale's container network namespace, which is also multi-homed onto
+   the `vpn_net` subnet, so they can reach gluetun's fixed IP directly; the
+   `arr-vps` hostname path is for your own browser/Tailscale-client access,
+   not container-to-container. The download client field asks for
+   qBittorrent's **WebUI username/password** (from step 2) — there's no
+   API-key-based option for it, in any of the three apps. Grab each app's
+   own API key (Settings → General) for its `HOMEPAGE_VAR_*_KEY`. For
+   **Lidarr** specifically, also copy its key into `.env`'s
+   `LIDARR_API_KEY` (bootstrap uses it to template
+   `config/soularr/config.ini` — until set, soularr can't authenticate; a
+   placeholder value unblocks the deploy itself if Lidarr hasn't started
+   yet, swap in the real key and redeploy again once reachable) and
+   redeploy (`uv run deploy.py`) before step 8. All three of these must
+   exist before Prowlarr's app sync (step 5) or Seerr's connections
+   (step 9) can point at them.
+5. **Prowlarr** (`:9696`) — *requires: step 4.* Like step 4, its first
+   visit prompts for an authentication username/password — set that first.
+   Add indexers, then Settings → Apps → sync Radarr/Sonarr/Lidarr so
+   indexers propagate to all three automatically — this needs those three
+   already reachable with known API keys. **Download clients are NOT
+   configured here** — Prowlarr only syncs indexers to the *arr apps; each
+   of Radarr/Sonarr/Lidarr keeps its own separate qBittorrent connection
+   (set in step 4). For indexers blocked by Cloudflare, add FlareSolverr as
+   an indexer proxy: Settings → Indexer Proxies → add FlareSolverr, URL
+   `http://127.0.0.1:8191` (it shares the same Tailscale network namespace),
+   then apply it to the indexers that need it. Grab Prowlarr's own API key
+   (Settings → General) for `HOMEPAGE_VAR_PROWLARR_KEY`.
+6. **Jellyfin** (`:8096`) — *requires: nothing (independent of the arr
+   apps' config, only needs the filesystem).* Run the setup wizard —
+   **finish the whole wizard first**; the API key appears mid-wizard on one
+   of its screens, which is easy to miss or misread as optional. If you
+   miss it, generate one afterward via Dashboard → API Keys. Add `/movies`,
+   `/tv` as libraries, then Dashboard → Libraries → Scan All Libraries
+   after any new download. That key goes to `HOMEPAGE_VAR_JELLYFIN_KEY`.
 7. **Navidrome** (`:4533`) — *requires: nothing.* Points at `/music`;
    rescans automatically. Intentionally not on Homepage (its widget needs
    manual Subsonic-style token/salt setup, not a simple API key).
 8. **soularr** — *requires: steps 3 and 4 (Lidarr's `LIDARR_API_KEY` must
-   already be in `.env` and redeployed, and slskd must be up).* No UI;
-   verify it's working via `docker logs arr-soularr`. Runs every
-   `SCRIPT_INTERVAL` (300s) — a `connection refused` on the very first cycle
-   after a fresh deploy is usually just Lidarr/slskd still initializing, not
-   a real failure.
+   already be in `.env` and redeployed, and slskd must be up).* Mostly
+   headless, but it does serve a minimal Web UI at `:8265` — there's little
+   to configure there, but it's useful for viewing the generated
+   `config.ini`. It's on the Homepage dashboard as a plain link (no
+   widget/API key — soularr has no stats API). Verify it's actually working
+   via `docker logs arr-soularr`. Runs every `SCRIPT_INTERVAL` (300s) — a
+   `connection refused` on the very first cycle after a fresh deploy is
+   usually just Lidarr/slskd still initializing, not a real failure.
 9. **Seerr** (`:5055`) — *requires: step 4 (Radarr/Sonarr already
-   configured).* Connect it to Radarr/Sonarr in Settings; Lidarr music
-   requests are not natively supported (Radarr/Sonarr-only). Grab its API
-   key (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
+   configured).* Complete its own setup wizard and connect it to
+   Radarr/Sonarr in Settings first — **its API key only becomes available
+   after setup is finished**, not before. Lidarr music requests are not
+   natively supported (Radarr/Sonarr-only). Grab the API key
+   (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
 
 After collecting the keys above, redeploy once more (`uv run deploy.py`) so
 Homepage picks them all up.

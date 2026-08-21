@@ -6,9 +6,9 @@
 # committed to git.
 #
 # All apps below are reachable via Tailscale at http://arr-vps:<port>.
-# qBittorrent is intentionally excluded (reachable only via the Tailscale
-# subnet route at 172.28.0.10:8080, not via arr-vps). soularr is excluded
-# (no web UI). homepage itself is excluded.
+# qBittorrent is intentionally excluded from Tailscale-hostname access
+# (reachable only via the Tailscale subnet route at 172.28.0.10:8080, not
+# via arr-vps). homepage itself is excluded.
 #
 # Widget API keys are injected via {{HOMEPAGE_VAR_XXX}} placeholders, which
 # Homepage substitutes at runtime from HOMEPAGE_VAR_* environment variables
@@ -89,3 +89,10 @@
     - qBittorrent:
         href: http://172.28.0.10:8080
         icon: qbittorrent.png
+
+    # soularr: plain link, no widget. It has no public API to pull stats
+    # from — this tile just gives quick access to its minimal UI, which
+    # shows the generated config.ini.
+    - soularr:
+        href: http://arr-vps:8265
+        icon: soularr.png
