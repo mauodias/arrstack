@@ -330,6 +330,18 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: arr-flaresolverr
+    network_mode: "service:tailscale"
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    depends_on:
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: arr-radarr
@@ -566,6 +578,7 @@ services:
    * Disable UPnP / NAT-PMP.
 3. **App-to-App Interconnection:**
    * Radarr/Sonarr/Lidarr to Prowlarr: `http://127.0.0.1:9696`
+   * Prowlarr to FlareSolverr: `http://127.0.0.1:8191` (proxy for Cloudflare-protected indexers)
    * Radarr/Sonarr to qBittorrent: `http://arr-gluetun:8080` (or Gluetun bridge IP)
    * Seerr to Radarr/Sonarr: `http://127.0.0.1:7878` / `http://127.0.0.1:8989`
      (all share the Tailscale sidecar's network namespace, so app-to-app

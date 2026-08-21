@@ -139,6 +139,18 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: arr-flaresolverr
+    network_mode: "service:tailscale"
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    depends_on:
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: arr-radarr
