@@ -549,12 +549,41 @@ services:
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
-      # Enable Web UI to persist configuration changes (shared folders, download prefs, etc).
-      # Safe here because Web UI access is restricted to Tailscale-only, never public internet.
-      - SLSKD_REMOTE_CONFIGURATION=true
+      # slskd's config precedence is:
+      #   defaults < environment variables < slskd.yml < command line
+      # Environment variables are WEAKER than the YAML file, which is the
+      # reverse of most apps. Remote configuration lets the Web UI write
+      # slskd.yml, so leaving it on means a stray click in the UI silently
+      # outranks everything declared below and the drift is invisible from
+      # git. Keeping it off makes this file the single source of truth,
+      # consistent with every other service in this stack.
+      - SLSKD_REMOTE_CONFIGURATION=false
+      # Completed downloads land on the Storage Box at the path Lidarr and
+      # soularr both expect (soularr's config.ini download_dir must match).
+      # Without this, slskd falls back to APP_DIR/downloads — i.e. inside
+      # the ./config/slskd bind mount on local VPS disk, where soularr and
+      # Lidarr never look.
+      - SLSKD_DOWNLOADS_DIR=/downloads
+      # Partial files stay on local disk deliberately: they are written as
+      # many small appends, which is pathological over WebDAV/FUSE. Only the
+      # finished file crosses to the Storage Box, in one sequential pass.
+      - SLSKD_INCOMPLETE_DIR=/app/incomplete
+      # Share the music library back to the Soulseek network. Because sharing
+      # is directory-based (not per-transfer like BitTorrent seeding), albums
+      # Lidarr imports into /music become shared automatically.
+      - SLSKD_SHARED_DIR=/music
+      - SLSKD_UPLOAD_SLOTS=20
+      # Kibibytes per second: 20480 KiB/s = 20 MiB/s.
+      - SLSKD_UPLOAD_SPEED_LIMIT=20480
+      # The share index defaults to RAM; keep it on disk since the library is
+      # large and sits behind a FUSE mount.
+      - SLSKD_SHARE_CACHE_STORAGE_MODE=Disk
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
+      # Read-only: slskd only ever serves uploads from here. Lidarr owns
+      # writing to /music.
+      - /mnt/remote-media/music:/music:ro,rslave
     depends_on:
       rclone-mount:
         condition: service_healthy
@@ -712,6 +741,34 @@ networks:
      (all share the Tailscale sidecar's network namespace, so app-to-app
      calls use `127.0.0.1` with the target app's port, not container names)
    * Soularr to Lidarr: `http://127.0.0.1:8686`; to slskd: `http://127.0.0.1:5030`
+   * **Music acquisition flow.** slskd is a download client only — it never
+     moves files into the library, exactly like qBittorrent. Lidarr has no
+     native slskd support, so soularr bridges them: it reads Lidarr's wanted
+     list, searches and starts downloads in slskd, then asks Lidarr to import
+     the result. slskd writes completed files to `/downloads` and Lidarr moves
+     and renames them into `/music`. All three containers bind the same
+     `/mnt/remote-media/downloads` at `/downloads`, which is what makes the
+     handoff work; `SLSKD_DOWNLOADS_DIR` and both `download_dir` keys in
+     `config/soularr/config.ini` must agree on that path. (slskd's default is
+     `APP_DIR/downloads`, which inside the container resolves into the
+     `./config/slskd` bind mount on local disk, where neither soularr nor
+     Lidarr looks — hence the explicit override.)
+   * **Sharing back.** slskd shares `/music` read-only
+     (`SLSKD_SHARED_DIR`, mounted `ro`). Soulseek sharing is directory-based
+     rather than per-transfer, so an album Lidarr imports into `/music` is
+     shared automatically — moving a file out of the download directory adds
+     it to the share instead of breaking it, unlike BitTorrent seeding.
+     Uploads are read back through the rclone VFS cache, so heavily-requested
+     albums occupy cache space (Section 5's `--vfs-cache-max-size`).
+   * **slskd configuration is declared, not clicked.** Its precedence is
+     `defaults < environment variables < slskd.yml < command line` — env vars
+     are *weaker* than the YAML file, the reverse of most applications. With
+     remote configuration enabled the Web UI writes `slskd.yml`, so any UI
+     edit silently outranks `docker-compose.yml` and leaves no trace in git.
+     `SLSKD_REMOTE_CONFIGURATION=false` keeps compose authoritative,
+     consistent with every other service here. The consequence is that a host
+     which previously ran with it enabled retains a `slskd.yml` that must be
+     removed before the environment variables take effect.
    * Jellyfin/Navidrome read directly from `/mnt/remote-media/*`; no API
      linkage to Radarr/Sonarr/Lidarr is required for playback, only for
      Seerr's "available" status if configured

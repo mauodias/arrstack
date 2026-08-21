@@ -265,12 +265,41 @@ services:
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
-      # Enable Web UI to persist configuration changes (shared folders, download prefs, etc).
-      # Safe here because Web UI access is restricted to Tailscale-only, never public internet.
-      - SLSKD_REMOTE_CONFIGURATION=true
+      # slskd's config precedence is:
+      #   defaults < environment variables < slskd.yml < command line
+      # Environment variables are WEAKER than the YAML file, which is the
+      # reverse of most apps. Remote configuration lets the Web UI write
+      # slskd.yml, so leaving it on means a stray click in the UI silently
+      # outranks everything declared below and the drift is invisible from
+      # git. Keeping it off makes this file the single source of truth,
+      # consistent with every other service in this stack.
+      - SLSKD_REMOTE_CONFIGURATION=false
+      # Completed downloads land on the Storage Box at the path Lidarr and
+      # soularr both expect (soularr's config.ini download_dir must match).
+      # Without this, slskd falls back to APP_DIR/downloads — i.e. inside
+      # the ./config/slskd bind mount on local VPS disk, where soularr and
+      # Lidarr never look.
+      - SLSKD_DOWNLOADS_DIR=/downloads
+      # Partial files stay on local disk deliberately: they are written as
+      # many small appends, which is pathological over WebDAV/FUSE. Only the
+      # finished file crosses to the Storage Box, in one sequential pass.
+      - SLSKD_INCOMPLETE_DIR=/app/incomplete
+      # Share the music library back to the Soulseek network. Because sharing
+      # is directory-based (not per-transfer like BitTorrent seeding), albums
+      # Lidarr imports into /music become shared automatically.
+      - SLSKD_SHARED_DIR=/music
+      - SLSKD_UPLOAD_SLOTS=20
+      # Kibibytes per second: 20480 KiB/s = 20 MiB/s.
+      - SLSKD_UPLOAD_SPEED_LIMIT=20480
+      # The share index defaults to RAM; keep it on disk since the library is
+      # large and sits behind a FUSE mount.
+      - SLSKD_SHARE_CACHE_STORAGE_MODE=Disk
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
+      # Read-only: slskd only ever serves uploads from here. Lidarr owns
+      # writing to /music.
+      - /mnt/remote-media/music:/music:ro,rslave
     depends_on:
       rclone-mount:
         condition: service_healthy

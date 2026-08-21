@@ -142,12 +142,22 @@ the same Settings page you're already on.
    Radarr/Sonarr/Lidarr, since their download-client setup (step 4) points
    at it. No API key needed for its Homepage tile (widget uses your
    qBittorrent login instead).
-3. **slskd** (`:5030`) — *requires: step 1.* `SLSKD_SLSK_USERNAME`/`PASSWORD`
-   in `.env` set the Soulseek network login, but you must also re-enter (or
-   confirm) them under Settings → Soulseek in the Web UI itself — the env
-   vars alone don't guarantee a connection. `SLSKD_REMOTE_CONFIGURATION=true`
-   is what makes that Settings page editable. Its `HOMEPAGE_VAR_SLSKD_KEY`
-   is just `SLSKD_API_KEY`, already set. Do this before soularr (step 8).
+3. **slskd** (`:5030`) — *requires: step 1.* Nothing to configure in the
+   Web UI: `SLSKD_REMOTE_CONFIGURATION=false`, so slskd's settings are
+   declared entirely in `docker-compose.yml` (download/share paths, upload
+   limits) and `.env` (credentials). This is deliberate — slskd's precedence
+   is `defaults < env vars < slskd.yml < command line`, so environment
+   variables are *weaker* than the YAML file, and a Web UI edit would
+   silently outrank compose with no trace in git. Just log in and confirm
+   it connected to the Soulseek network and that `/music` shows up as a
+   share. Its `HOMEPAGE_VAR_SLSKD_KEY` is just `SLSKD_API_KEY`, already set.
+   Do this before soularr (step 9).
+
+   **On a host that previously ran with remote configuration enabled**, an
+   existing `config/slskd/slskd.yml` will keep overriding the compose
+   settings. Check whether its `soulseek.username`/`password` match `.env`,
+   then delete it and redeploy so the environment variables take effect.
+
 4. **Radarr** (`:7878`) / **Sonarr** (`:8989`) / **Lidarr** (`:8686`) —
    *requires: step 2.* Each app's first visit prompts you to set an
    authentication username/password — do this before anything else. Then:
