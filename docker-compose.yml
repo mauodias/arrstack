@@ -57,6 +57,17 @@ services:
       retries: 3
     restart: unless-stopped
 
+  media-dirs-init:
+    image: alpine:latest
+    container_name: arr-media-dirs-init
+    volumes:
+      - /mnt/remote-media:/data:rslave
+    command: ["sh", "-c", "mkdir -p /data/movies /data/tv /data/music /data/downloads && echo 'Media directories created on remote.'"]
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+    restart: "no"
+
   tailscale:
     image: tailscale/tailscale:latest
     container_name: arr-tailscale
@@ -124,6 +135,8 @@ services:
         condition: service_started
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   prowlarr:
@@ -168,6 +181,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -187,6 +202,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -223,6 +240,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -249,6 +268,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -285,6 +306,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -306,6 +329,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped

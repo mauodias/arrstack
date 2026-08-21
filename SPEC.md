@@ -115,11 +115,20 @@ absolute path (Section 5):
 mkdir -p /mnt/remote-media
 ```
 
-`/mnt/remote-media` gains a `music` subdirectory alongside the existing
-`movies`, `tv`, and `downloads` (Radarr/Sonarr already populate the
-latter three per Section 5); Lidarr, slskd/soularr, Navidrome, and
-Jellyfin all read/write through this same rclone-backed mount, consistent
-with Section 1.1's shared-volume-propagation principle.
+`/mnt/remote-media` gains `movies`, `tv`, `music`, and `downloads`
+subdirectories, but not from `bootstrap` — `bootstrap` runs and completes
+before `rclone-mount` ever starts (Section 5), so any directories it
+created at that path would only exist on the local disk underneath the
+future mount point and would be immediately shadowed the moment
+`rclone-mount` FUSE-mounts the Hetzner remote on top of it. Instead, a
+dedicated `media-dirs-init` container (Section 5, Section 11) runs after
+`rclone-mount` reports `service_healthy`, so `mkdir -p` executes against
+the live FUSE-mounted view and the directories are genuinely created on
+the remote. Every application service that reads/writes under this path
+— Radarr, Sonarr, Lidarr, slskd/soularr, Navidrome, Jellyfin, and
+qBittorrent — depends on both `rclone-mount: service_healthy` and
+`media-dirs-init: service_completed_successfully`, consistent with
+Section 1.1's shared-volume-propagation principle.
 
 ---
 
@@ -267,6 +276,22 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
+  # 1a. MEDIA DIRECTORY INIT (runs only after the FUSE mount is genuinely
+  # live, so movies/tv/music/downloads are created on the actual remote
+  # rather than shadowed by the mount the moment it activates)
+  # ---------------------------------------------------------------------------
+  media-dirs-init:
+    image: alpine:latest
+    container_name: arr-media-dirs-init
+    volumes:
+      - /mnt/remote-media:/data:rslave
+    command: ["sh", "-c", "mkdir -p /data/movies /data/tv /data/music /data/downloads && echo 'Media directories created on remote.'"]
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
   # 2. NETWORK LAYER (Tailscale Sidecar)
   # ---------------------------------------------------------------------------
   tailscale:
@@ -357,6 +382,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -376,6 +403,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -412,6 +441,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -435,6 +466,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -470,6 +503,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -491,6 +526,8 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -529,6 +566,8 @@ services:
         condition: service_started
       rclone-mount:
         condition: service_healthy
+      media-dirs-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 ```
 
@@ -738,16 +777,26 @@ unavoidable SSH visit as small and repeatable as possible.
   container with a bind mount to the project root and `/mnt/remote-media`
   (regular volume access, no special host privilege). On start it
   idempotently:
-  * creates any missing `config/*` and `/mnt/remote-media/*`
-    subdirectories from Section 3.2,
+  * creates any missing `config/*` subdirectories from Section 3.2,
   * sets ownership to `PUID:PGID`,
   * verifies `.env` exists and defines the required
     `HETZNER_STORAGEBOX_*` keys (Section 4.1) — fails/reports unhealthy
     if not, since these must be populated locally first per Section 9.1,
-  * exits 0 and reports healthy once the tree matches expectations.
-  Other services depend on it via `condition: service_completed_successfully`,
-  so a fresh Arcane deploy self-heals the directory tree without any
-  manual step.
+  * exits 0 once the tree matches expectations.
+  Note that `bootstrap` runs and completes *before* `rclone-mount` even
+  starts (Section 5), so it deliberately does **not** create
+  `/mnt/remote-media/*` subdirectories — anything created there pre-mount
+  would only exist on the local disk underneath the future mount point
+  and gets shadowed the instant `rclone-mount` FUSE-mounts the remote on
+  top of it. That job belongs to `media-dirs-init` (Section 5), a
+  one-shot container that only runs once `rclone-mount` reports
+  `condition: service_healthy`, so its `mkdir -p` executes against the
+  live FUSE-mounted view and the directories are genuinely created on
+  the remote itself. Other services depend on `bootstrap` via
+  `condition: service_completed_successfully` for config/permissions,
+  and separately depend on `media-dirs-init` the same way for the media
+  tree, so a fresh Arcane deploy self-heals both without any manual
+  step.
 * **`setup-host.sh`** (committed to this public repo, fetched via its
   raw GitHub URL): the two host-kernel steps from Section 3.1 that the
   init container structurally cannot perform. Since the repo has no

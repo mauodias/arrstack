@@ -7,7 +7,6 @@ PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
 CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage"
-MEDIA_DIRS="movies tv music downloads"
 
 # services.yaml is a git-committed, human-authored exception to the usual
 # rule that config/* is runtime state never committed to the repo. It is
@@ -51,10 +50,6 @@ mv "$WORKSPACE/config/soularr/config.ini.tmp" "$WORKSPACE/config/soularr/config.
 echo "Generated config/soularr/config.ini"
 
 mkdir -p "$WORKSPACE/data/rclone-cache"
-
-for dir in $MEDIA_DIRS; do
-    mkdir -p "$MEDIA_ROOT/$dir"
-done
 
 chown -R "${PUID}:${PGID}" "$WORKSPACE/config" "$WORKSPACE/data" "$MEDIA_ROOT"
 

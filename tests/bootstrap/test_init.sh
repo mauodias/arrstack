@@ -112,9 +112,6 @@ WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
 [ -d "$WORKDIR/config/homepage" ] || fail "config/homepage not created"
 [ -d "$WORKDIR/config/soularr" ] || fail "config/soularr not created"
 [ -d "$WORKDIR/data/rclone-cache" ] || fail "data/rclone-cache not created"
-[ -d "$MEDIA_DIR/movies" ] || fail "movies dir not created"
-[ -d "$MEDIA_DIR/music" ] || fail "music dir not created"
-[ -d "$MEDIA_DIR/downloads" ] || fail "downloads dir not created"
 
 echo "Test 4: idempotent (second run also succeeds cleanly)"
 WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
