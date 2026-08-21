@@ -20,17 +20,15 @@
     units: metric
     cache: 15
 
-# `disk` points at the rclone VFS cache, which is bind-mounted read-only into
-# the homepage container (docker-compose.yml). It reports the VPS's own disk,
-# not Storage Box capacity — deliberately so: the 100G cache lives on local
-# disk and can fill up and break writes even while the Storage Box has room.
-# Remote Storage Box capacity is the customapi widget in services.yaml.
+# Deliberately no `disk:` here — the only storage figure worth surfacing is
+# Hetzner Storage Box capacity, which is the customapi widget in
+# services.yaml. A local-disk reading would report the VPS's own partition
+# and read as a second, contradictory "storage" number on the same page.
 - resources:
     label: VPS
     cpu: true
     memory: true
     uptime: true
-    disk: /mnt/rclone-cache
 
 - search:
     provider: duckduckgo

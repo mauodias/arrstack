@@ -48,7 +48,7 @@ This specification defines the deployment of an automated media acquisition and 
 
   Notes:
   * Homepage (dashboard) aggregates *arr/qBittorrent/Jellyfin stats via their APIs,
-    plus rclone 'about' (remote used/free) and VPS local-disk usage (cache, Section 10).
+    plus rclone 'about' for Storage Box used/free (Section 10).
   * soularr has no exposed port; it bridges Lidarr and slskd (both on this same
     netns) over 127.0.0.1 on a schedule.
 
@@ -640,11 +640,6 @@ services:
       - HOMEPAGE_VAR_JELLYFIN_KEY=${HOMEPAGE_VAR_JELLYFIN_KEY}
     volumes:
       - ./config/homepage:/app/config
-      # Read-only, purely so the `resources` info widget (config/homepage/
-      # widgets.yaml) can report the VPS's own disk usage — the rclone VFS
-      # cache lives here and can fill local disk independently of Storage
-      # Box capacity.
-      - ./data/rclone-cache:/mnt/rclone-cache:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       tailscale:
@@ -840,10 +835,12 @@ directly from each app's API:
   run with `--rc-no-auth`, even though it's already internal-network-only).
   Homepage passes those same credentials through as
   `HOMEPAGE_VAR_RCLONE_RC_USER`/`HOMEPAGE_VAR_RCLONE_RC_PASS`. This shows
-  remote capacity only — local VPS disk usage for the `--vfs-cache`
-  directory (which can independently fill up and break writes even while
-  the Storage Box itself has room) isn't covered by this widget and would
-  need Homepage's separate `resources`/`disk` widget type if wanted later.
+  remote capacity only. Local VPS disk usage for the `--vfs-cache`
+  directory is deliberately NOT shown: the cache can independently fill up
+  and break writes even while the Storage Box has room, but putting both
+  numbers on one dashboard reads as two contradictory "storage" figures.
+  If it's ever wanted, Homepage's `resources` widget takes a `disk:` path
+  and would need that path bind-mounted into the homepage container.
 * **Queues/activity:** Radarr, Sonarr, Lidarr wanted/queue counts;
   Prowlarr indexer health; qBittorrent active torrents and ratio; slskd
   active transfers.
@@ -858,9 +855,7 @@ directly from each app's API:
 Runs as a 7th Tailscale-network application (Section 5, alongside the
 other consumer apps) — no public exposure, consistent with Section 1.1.
 It needs read-only access to the Docker socket (`/var/run/docker.sock`)
-for container status widgets, and a read-only bind of `./data/rclone-cache`
-so the `resources` info widget can report local VPS disk usage (Section
-10.1). Its three config files — `services.yaml` (tiles/widgets),
+for container status widgets. Its three config files — `services.yaml` (tiles/widgets),
 `settings.yaml` (theme, group order, per-group icons and columns) and
 `widgets.yaml` (the clock/weather/resources/search header row) — are
 human-authored and committed to git, unlike every other `config/*`
