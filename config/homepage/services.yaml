@@ -1,0 +1,82 @@
+---
+# Homepage dashboard service definitions.
+# Unlike other config/* directories in this repo (which are runtime state
+# managed by each app's own UI/database and are never committed), this file
+# is human-authored infrastructure for the Homepage dashboard and IS
+# committed to git.
+#
+# All apps below are reachable via Tailscale at http://arr-vps:<port>.
+# qBittorrent is intentionally excluded (reachable only via the Tailscale
+# subnet route at 172.28.0.10:8080, not via arr-vps). soularr is excluded
+# (no web UI). homepage itself is excluded.
+#
+# Widget API keys are injected via {{HOMEPAGE_VAR_XXX}} placeholders, which
+# Homepage substitutes at runtime from HOMEPAGE_VAR_* environment variables
+# (see docker-compose.yml's homepage service and .env.example).
+
+- Media Stack:
+    - Prowlarr:
+        href: http://arr-vps:9696
+        icon: prowlarr.png
+        widget:
+          type: prowlarr
+          url: http://arr-vps:9696
+          key: "{{HOMEPAGE_VAR_PROWLARR_KEY}}"
+
+    - Radarr:
+        href: http://arr-vps:7878
+        icon: radarr.png
+        widget:
+          type: radarr
+          url: http://arr-vps:7878
+          key: "{{HOMEPAGE_VAR_RADARR_KEY}}"
+
+    - Sonarr:
+        href: http://arr-vps:8989
+        icon: sonarr.png
+        widget:
+          type: sonarr
+          url: http://arr-vps:8989
+          key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
+
+    - Seerr:
+        href: http://arr-vps:5055
+        icon: seerr.png
+        widget:
+          type: seerr
+          url: http://arr-vps:5055
+          key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
+
+    - Lidarr:
+        href: http://arr-vps:8686
+        icon: lidarr.png
+        widget:
+          type: lidarr
+          url: http://arr-vps:8686
+          key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
+
+    - slskd:
+        href: http://arr-vps:5030
+        icon: slskd.png
+        widget:
+          type: slskd
+          url: http://arr-vps:5030
+          key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
+
+    - Jellyfin:
+        href: http://arr-vps:8096
+        icon: jellyfin.png
+        widget:
+          type: jellyfin
+          url: http://arr-vps:8096
+          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+
+    # Navidrome: no live-stats widget configured. Homepage's `navidrome`
+    # widget type requires Subsonic-style MD5(password+salt) token auth
+    # (url, user, token, salt) which is too complex to template cleanly
+    # via a simple API key. If desired later, add a widget block here with
+    # a manually-generated Subsonic token/salt pair — see
+    # https://gethomepage.dev/widgets/services/navidrome/
+    - Navidrome:
+        href: http://arr-vps:4533
+        icon: navidrome.png

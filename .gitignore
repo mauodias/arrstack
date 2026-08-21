@@ -1,5 +1,10 @@
 .env
-config/
+config/*
+# Exception: Homepage's dashboard config is human-authored infrastructure,
+# not runtime state, so it is tracked in git unlike every other config/* dir.
+!config/homepage/
+config/homepage/*
+!config/homepage/services.yaml
 data/
 __pycache__/
 *.pyc
