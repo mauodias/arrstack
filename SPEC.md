@@ -120,15 +120,18 @@ subdirectories, but not from `bootstrap` — `bootstrap` runs and completes
 before `rclone-mount` ever starts (Section 5), so any directories it
 created at that path would only exist on the local disk underneath the
 future mount point and would be immediately shadowed the moment
-`rclone-mount` FUSE-mounts the Hetzner remote on top of it. Instead, a
-dedicated `media-dirs-init` container (Section 5, Section 11) runs after
-`rclone-mount` reports `service_healthy`, so `mkdir -p` executes against
-the live FUSE-mounted view and the directories are genuinely created on
-the remote. Every application service that reads/writes under this path
-— Radarr, Sonarr, Lidarr, slskd/soularr, Navidrome, Jellyfin, and
-qBittorrent — depends on both `rclone-mount: service_healthy` and
-`media-dirs-init: service_completed_successfully`, consistent with
-Section 1.1's shared-volume-propagation principle.
+`rclone-mount` FUSE-mounts the Hetzner remote on top of it. Instead,
+`rclone-mount` itself creates these directories as the first step of its
+own startup command (Section 5), before it mounts: it runs
+`rclone mkdir hetzner_box:<dir>` for each of the four directories, which
+talks directly to the remote over WebDAV (no FUSE, no mount, no
+cross-container propagation involved) using the same credentials the
+container already uses for the mount itself. Every application service
+that reads/writes under this path — Radarr, Sonarr, Lidarr, slskd/soularr,
+Navidrome, Jellyfin, and qBittorrent — depends only on
+`rclone-mount: service_healthy`, which is now sufficient since the
+directories are guaranteed to exist before the mount (and thus the
+healthcheck) can succeed.
 
 ---
 
@@ -256,6 +259,12 @@ services:
       bootstrap:
         condition: service_completed_successfully
     command: >
+      sh -c "rclone mkdir hetzner_box:movies;
+      rclone mkdir hetzner_box:tv;
+      rclone mkdir hetzner_box:music;
+      rclone mkdir hetzner_box:downloads;
+      fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true;
+      exec rclone
       mount hetzner_box: /data
       --allow-other
       --cache-dir /cache
@@ -267,29 +276,13 @@ services:
       --vfs-read-chunk-size 64M
       --vfs-read-chunk-size-limit 1G
       --buffer-size 32M
-      --umask 002
+      --umask 002"
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
     restart: unless-stopped
-
-  # ---------------------------------------------------------------------------
-  # 1a. MEDIA DIRECTORY INIT (runs only after the FUSE mount is genuinely
-  # live, so movies/tv/music/downloads are created on the actual remote
-  # rather than shadowed by the mount the moment it activates)
-  # ---------------------------------------------------------------------------
-  media-dirs-init:
-    image: alpine:latest
-    container_name: arr-media-dirs-init
-    volumes:
-      - /mnt/remote-media:/data:rslave
-    command: ["sh", "-c", "mkdir -p /data/movies /data/tv /data/music /data/downloads && echo 'Media directories created on remote.'"]
-    depends_on:
-      rclone-mount:
-        condition: service_healthy
-    restart: "no"
 
   # ---------------------------------------------------------------------------
   # 2. NETWORK LAYER (Tailscale Sidecar)
@@ -382,8 +375,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -403,8 +394,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -441,8 +430,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -466,8 +453,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -503,8 +488,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -526,8 +509,6 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
       tailscale:
         condition: service_started
     restart: unless-stopped
@@ -566,8 +547,6 @@ services:
         condition: service_started
       rclone-mount:
         condition: service_healthy
-      media-dirs-init:
-        condition: service_completed_successfully
     restart: unless-stopped
 ```
 
@@ -788,15 +767,18 @@ unavoidable SSH visit as small and repeatable as possible.
   `/mnt/remote-media/*` subdirectories — anything created there pre-mount
   would only exist on the local disk underneath the future mount point
   and gets shadowed the instant `rclone-mount` FUSE-mounts the remote on
-  top of it. That job belongs to `media-dirs-init` (Section 5), a
-  one-shot container that only runs once `rclone-mount` reports
-  `condition: service_healthy`, so its `mkdir -p` executes against the
-  live FUSE-mounted view and the directories are genuinely created on
-  the remote itself. Other services depend on `bootstrap` via
-  `condition: service_completed_successfully` for config/permissions,
-  and separately depend on `media-dirs-init` the same way for the media
-  tree, so a fresh Arcane deploy self-heals both without any manual
-  step.
+  top of it. That job belongs to `rclone-mount` itself (Section 5): as
+  the first steps of its own startup command, before it mounts, it runs
+  `rclone mkdir hetzner_box:<dir>` for each of the four directories —
+  a plain WebDAV call over HTTP that talks directly to the remote using
+  credentials the container already has, with no FUSE mount or
+  cross-container propagation involved. Other services depend on
+  `bootstrap` via `condition: service_completed_successfully` for
+  config/permissions, and on `rclone-mount` via
+  `condition: service_healthy` for the media tree — sufficient on its
+  own now, since the directories are created before the mount (and thus
+  the healthcheck) can succeed — so a fresh Arcane deploy self-heals
+  both without any manual step.
 * **`setup-host.sh`** (committed to this public repo, fetched via its
   raw GitHub URL): the two host-kernel steps from Section 3.1 that the
   init container structurally cannot perform. Since the repo has no
