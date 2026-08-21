@@ -11,6 +11,49 @@ over SSH except a one-time host setup script.
 Full architecture, rationale, and per-service configuration notes:
 [`SPEC.md`](./SPEC.md).
 
+## Applications
+
+17 services, all defined in `docker-compose.yml`.
+
+### Infrastructure
+
+- **bootstrap** — not user-facing; idempotent setup that runs on every
+  deploy to create directories, validate env vars, and fetch config
+- **rclone-mount** — mounts the Hetzner Storage Box over WebDAV via FUSE
+  so containers see it as a local media path
+- **tailscale** — private network access to the stack; nothing is exposed
+  to the public internet
+- **gluetun** — AirVPN WireGuard tunnel that isolates torrent traffic from
+  the rest of the stack's network
+
+### Acquisition & management
+
+- **qbittorrent** — torrent client, routed exclusively through gluetun's
+  network namespace
+- **prowlarr** — indexer manager that feeds search results to Radarr,
+  Sonarr, and Lidarr
+- **flaresolverr** — solves Cloudflare challenges for indexers Prowlarr
+  can't reach directly
+- **radarr** — movie acquisition and library management
+- **sonarr** — TV show acquisition and library management
+- **lidarr** — music acquisition and library management
+- **slskd** — Soulseek P2P client, an alternate source for music beyond
+  torrents
+- **soularr** — bridges Lidarr's wanted list to slskd so missing albums
+  get searched on Soulseek
+- **seerr** — request/discovery frontend; the "click request, get media"
+  UI for non-technical users, talking to Radarr and Sonarr
+
+### Streaming
+
+- **navidrome** — Subsonic-compatible music streaming server
+- **jellyfin** — movie and TV streaming server
+
+### Dashboard
+
+- **homepage** — aggregates status and links for the apps above into a
+  single dashboard
+
 ## Repo layout
 
 - `docker-compose.yml` — the whole stack: `bootstrap`, `rclone-mount`,
