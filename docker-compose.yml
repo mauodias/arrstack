@@ -9,6 +9,8 @@ services:
       - PGID=${PGID}
       - HETZNER_STORAGEBOX_USER=${HETZNER_STORAGEBOX_USER}
       - HETZNER_STORAGEBOX_PASS_OBSCURED=${HETZNER_STORAGEBOX_PASS_OBSCURED}
+      - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - SLSKD_API_KEY=${SLSKD_API_KEY}
     volumes:
       - .:/workspace
       - /mnt/remote-media:/mnt/remote-media
@@ -260,6 +262,7 @@ services:
       - SCRIPT_INTERVAL=300
     volumes:
       - ./config/soularr:/data
+      - /mnt/remote-media/downloads:/downloads:rslave
     depends_on:
       lidarr:
         condition: service_started

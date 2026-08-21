@@ -1,0 +1,11 @@
+[Lidarr]
+api_key = __LIDARR_API_KEY__
+host_url = http://127.0.0.1:8686
+download_dir = /downloads
+
+[Slskd]
+api_key = __SLSKD_API_KEY__
+host_url = http://127.0.0.1:5030
+url_base = /
+download_dir = /downloads
+delete_searches = False

@@ -5,6 +5,12 @@ config/*
 !config/homepage/
 config/homepage/*
 !config/homepage/services.yaml
+# Exception: soularr's config.ini template is a human-authored, secret-free
+# placeholder committed to the repo; bootstrap fetches it and substitutes
+# real API keys from the environment to produce the runtime config.ini.
+!config/soularr/
+config/soularr/*
+!config/soularr/config.ini.template
 data/
 __pycache__/
 *.pyc

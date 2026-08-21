@@ -6,7 +6,9 @@ INIT_SCRIPT="$SCRIPT_DIR/../../bootstrap/init.sh"
 
 WORKDIR="$(mktemp -d)"
 MEDIA_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR" "$MEDIA_DIR"' EXIT
+FAKE_BIN_DIR="$(mktemp -d)"
+FIXTURE_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR"' EXIT
 
 fail() {
     echo "FAIL: $1" >&2
@@ -16,8 +18,40 @@ fail() {
 REAL_UID="$(id -u)"
 REAL_GID="$(id -g)"
 
+# We can't hit the actual internet from a unit test (and, before this branch
+# is merged to main, the real GitHub URLs for services.yaml/config.ini.template
+# wouldn't reflect this branch's changes anyway). Instead, put a fake `wget`
+# shim on PATH ahead of the real one that records how it was invoked and
+# copies a local fixture into place, exercising init.sh's real logic (URL
+# used, destination path, ordering relative to `mkdir -p`) without any
+# network access. Every test below runs with this shim on PATH and with
+# SERVICES_YAML_URL / SOULARR_CONFIG_TEMPLATE_URL pointed at fixture URLs.
+printf -- '- Test Group:\n    - Test Service:\n        href: http://example.test\n' > "$FIXTURE_DIR/services.yaml"
+FAKE_URL="https://example.test/services.yaml"
+
+printf -- '[Lidarr]\napi_key = __LIDARR_API_KEY__\nhost_url = http://127.0.0.1:8686\ndownload_dir = /downloads\n\n[Slskd]\napi_key = __SLSKD_API_KEY__\nhost_url = http://127.0.0.1:5030\nurl_base = /\ndownload_dir = /downloads\ndelete_searches = False\n' > "$FIXTURE_DIR/config.ini.template"
+FAKE_SOULARR_URL="https://example.test/config.ini.template"
+
+# Fake wget for testing: init.sh always calls us as "-qO <dest> <url>".
+# Dispatch by URL so both fetches (services.yaml, soularr's
+# config.ini.template) are served by this one shim, and log each call.
+cat > "$FAKE_BIN_DIR/wget" <<EOF
+#!/bin/sh
+echo "\$@" >> "$FIXTURE_DIR/wget.calls"
+case "\$3" in
+    "$FAKE_URL") cp "$FIXTURE_DIR/services.yaml" "\$2" ;;
+    "$FAKE_SOULARR_URL") cp "$FIXTURE_DIR/config.ini.template" "\$2" ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN_DIR/wget"
+
+PATH="$FAKE_BIN_DIR:$PATH"
+export PATH
+
 echo "Test 1: fails when both Hetzner vars are unset"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
     env -u HETZNER_STORAGEBOX_USER -u HETZNER_STORAGEBOX_PASS_OBSCURED \
     sh "$INIT_SCRIPT" 2>/dev/null; then
     fail "expected non-zero exit when both Hetzner vars are unset"
@@ -25,21 +59,58 @@ fi
 
 echo "Test 2: fails when only one Hetzner var is set"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     env -u HETZNER_STORAGEBOX_PASS_OBSCURED \
     sh "$INIT_SCRIPT" 2>/dev/null; then
     fail "expected non-zero exit when HETZNER_STORAGEBOX_PASS_OBSCURED is missing"
 fi
 
-echo "Test 3: succeeds and creates the directory tree when both Hetzner vars are set"
-WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+echo "Test 2b: fails when both LIDARR_API_KEY and SLSKD_API_KEY are unset"
+if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
-    sh "$INIT_SCRIPT" || fail "expected success when both Hetzner vars are set"
+    env -u LIDARR_API_KEY -u SLSKD_API_KEY \
+    sh "$INIT_SCRIPT" 2>/dev/null; then
+    fail "expected non-zero exit when both LIDARR_API_KEY and SLSKD_API_KEY are unset"
+fi
+
+echo "Test 2c: fails when only LIDARR_API_KEY is set"
+if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="lidarrkey" \
+    env -u SLSKD_API_KEY \
+    sh "$INIT_SCRIPT" 2>/dev/null; then
+    fail "expected non-zero exit when SLSKD_API_KEY is missing"
+fi
+
+echo "Test 2d: fails when only SLSKD_API_KEY is set"
+if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    SLSKD_API_KEY="slskdkey" \
+    env -u LIDARR_API_KEY \
+    sh "$INIT_SCRIPT" 2>/dev/null; then
+    fail "expected non-zero exit when LIDARR_API_KEY is missing"
+fi
+
+echo "Test 3: succeeds and creates the directory tree when all required vars are set"
+WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="reallidarrkey123" \
+    SLSKD_API_KEY="realslskdkey456" \
+    sh "$INIT_SCRIPT" || fail "expected success when all required vars are set"
 
 [ -d "$WORKDIR/config/rclone" ] || fail "config/rclone not created"
 [ -d "$WORKDIR/config/jellyfin" ] || fail "config/jellyfin not created"
 [ -d "$WORKDIR/config/homepage" ] || fail "config/homepage not created"
+[ -d "$WORKDIR/config/soularr" ] || fail "config/soularr not created"
 [ -d "$WORKDIR/data/rclone-cache" ] || fail "data/rclone-cache not created"
 [ -d "$MEDIA_DIR/movies" ] || fail "movies dir not created"
 [ -d "$MEDIA_DIR/music" ] || fail "music dir not created"
@@ -47,67 +118,88 @@ WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
 
 echo "Test 4: idempotent (second run also succeeds cleanly)"
 WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    SERVICES_YAML_URL="$FAKE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="reallidarrkey123" \
+    SLSKD_API_KEY="realslskdkey456" \
     sh "$INIT_SCRIPT" || fail "second run should also succeed"
 
 echo "Test 5: fetches services.yaml from SERVICES_YAML_URL into config/homepage"
-if command -v wget >/dev/null 2>&1; then
-    # Real wget is available, but we can't hit the actual internet from a unit
-    # test. Instead, put a fake `wget` shim earlier on PATH that records how
-    # it was invoked and copies a local fixture into place, exercising
-    # init.sh's real logic (URL used, destination path, ordering relative to
-    # `mkdir -p config/homepage`) without any network access.
-    FAKE_BIN_DIR="$(mktemp -d)"
-    FIXTURE_DIR="$(mktemp -d)"
-    WORKDIR2="$(mktemp -d)"
-    trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR" "$WORKDIR2"' EXIT
+WORKDIR2="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR" "$WORKDIR2"' EXIT
 
-    printf -- '- Test Group:\n    - Test Service:\n        href: http://example.test\n' > "$FIXTURE_DIR/services.yaml"
-    FAKE_URL="https://example.test/services.yaml"
+: > "$FIXTURE_DIR/wget.calls"
+WORKSPACE="$WORKDIR2" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="reallidarrkey123" \
+    SLSKD_API_KEY="realslskdkey456" \
+    SERVICES_YAML_URL="$FAKE_URL" \
+    SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    sh "$INIT_SCRIPT" || fail "expected success when fetching services.yaml via the fake wget shim"
 
-    cat > "$FAKE_BIN_DIR/wget" <<EOF
-#!/bin/sh
-# Fake wget for testing: init.sh always calls us as "-qO <dest> <url>".
-# Log the call and copy the local fixture to <dest> as if the fetch succeeded.
-echo "\$@" >> "$FIXTURE_DIR/wget.calls"
-cp "$FIXTURE_DIR/services.yaml" "\$2"
-EOF
-    chmod +x "$FAKE_BIN_DIR/wget"
+[ -f "$WORKDIR2/config/homepage/services.yaml" ] || fail "config/homepage/services.yaml was not written"
+cmp -s "$FIXTURE_DIR/services.yaml" "$WORKDIR2/config/homepage/services.yaml" \
+    || fail "fetched services.yaml content does not match fixture"
 
-    PATH="$FAKE_BIN_DIR:$PATH" \
-        WORKSPACE="$WORKDIR2" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-        HETZNER_STORAGEBOX_USER="someuser" \
-        HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
-        SERVICES_YAML_URL="$FAKE_URL" \
-        sh "$INIT_SCRIPT" || fail "expected success when fetching services.yaml via the fake wget shim"
+grep -q -- "-qO $WORKDIR2/config/homepage/services.yaml $FAKE_URL" "$FIXTURE_DIR/wget.calls" \
+    || fail "wget was not invoked with the expected destination and URL (got: $(cat "$FIXTURE_DIR/wget.calls"))"
 
-    [ -f "$WORKDIR2/config/homepage/services.yaml" ] || fail "config/homepage/services.yaml was not written"
-    cmp -s "$FIXTURE_DIR/services.yaml" "$WORKDIR2/config/homepage/services.yaml" \
-        || fail "fetched services.yaml content does not match fixture"
+echo "Test 5c: soularr's config.ini is generated with placeholders substituted for real API keys"
+[ -f "$WORKDIR2/config/soularr/config.ini" ] || fail "config/soularr/config.ini was not written"
+grep -q -- "-qO $WORKDIR2/config/soularr/config.ini $FAKE_SOULARR_URL" "$FIXTURE_DIR/wget.calls" \
+    || fail "wget was not invoked with the expected destination and URL for config.ini.template (got: $(cat "$FIXTURE_DIR/wget.calls"))"
+grep -q "api_key = reallidarrkey123" "$WORKDIR2/config/soularr/config.ini" \
+    || fail "LIDARR_API_KEY placeholder was not substituted with the real value"
+grep -q "api_key = realslskdkey456" "$WORKDIR2/config/soularr/config.ini" \
+    || fail "SLSKD_API_KEY placeholder was not substituted with the real value"
+if grep -q -e "__LIDARR_API_KEY__" -e "__SLSKD_API_KEY__" "$WORKDIR2/config/soularr/config.ini"; then
+    fail "placeholder tokens are still present in the generated config.ini"
+fi
 
-    grep -q -- "-qO $WORKDIR2/config/homepage/services.yaml $FAKE_URL" "$FIXTURE_DIR/wget.calls" \
-        || fail "wget was not invoked with the expected destination and URL (got: $(cat "$FIXTURE_DIR/wget.calls"))"
-
-    echo "Test 5b: fetch failure fails the whole bootstrap loudly"
-    cat > "$FAKE_BIN_DIR/wget" <<'EOF'
+echo "Test 5b: services.yaml fetch failure fails the whole bootstrap loudly"
+cat > "$FAKE_BIN_DIR/wget" <<'EOF'
 #!/bin/sh
 exit 1
 EOF
-    chmod +x "$FAKE_BIN_DIR/wget"
-    WORKDIR3="$(mktemp -d)"
-    trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR" "$WORKDIR2" "$WORKDIR3"' EXIT
-    if PATH="$FAKE_BIN_DIR:$PATH" \
-        WORKSPACE="$WORKDIR3" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-        HETZNER_STORAGEBOX_USER="someuser" \
-        HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
-        SERVICES_YAML_URL="$FAKE_URL" \
-        sh "$INIT_SCRIPT" 2>/dev/null; then
-        fail "expected non-zero exit when the services.yaml fetch fails"
-    fi
-    [ ! -d "$WORKDIR3/data" ] || fail "bootstrap should have aborted before creating data/ after a failed fetch"
-else
-    echo "wget not available in this environment; skipping services.yaml fetch test"
+chmod +x "$FAKE_BIN_DIR/wget"
+WORKDIR3="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR" "$WORKDIR2" "$WORKDIR3"' EXIT
+if WORKSPACE="$WORKDIR3" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="reallidarrkey123" \
+    SLSKD_API_KEY="realslskdkey456" \
+    SERVICES_YAML_URL="$FAKE_URL" \
+    SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    sh "$INIT_SCRIPT" 2>/dev/null; then
+    fail "expected non-zero exit when the services.yaml fetch fails"
 fi
+[ ! -d "$WORKDIR3/data" ] || fail "bootstrap should have aborted before creating data/ after a failed fetch"
+
+echo "Test 5d: soularr config.ini fetch failure fails the whole bootstrap loudly"
+cat > "$FAKE_BIN_DIR/wget" <<EOF
+#!/bin/sh
+echo "\$@" >> "$FIXTURE_DIR/wget.calls"
+case "\$3" in
+    "$FAKE_URL") cp "$FIXTURE_DIR/services.yaml" "\$2" ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN_DIR/wget"
+WORKDIR4="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR" "$MEDIA_DIR" "$FAKE_BIN_DIR" "$FIXTURE_DIR" "$WORKDIR2" "$WORKDIR3" "$WORKDIR4"' EXIT
+if WORKSPACE="$WORKDIR4" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
+    HETZNER_STORAGEBOX_USER="someuser" \
+    HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
+    LIDARR_API_KEY="reallidarrkey123" \
+    SLSKD_API_KEY="realslskdkey456" \
+    SERVICES_YAML_URL="$FAKE_URL" \
+    SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    sh "$INIT_SCRIPT" 2>/dev/null; then
+    fail "expected non-zero exit when the config.ini.template fetch fails"
+fi
+[ ! -d "$WORKDIR4/data" ] || fail "bootstrap should have aborted before creating data/ after a failed config.ini.template fetch"
 
 echo "All bootstrap tests passed."
