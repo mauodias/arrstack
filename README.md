@@ -104,48 +104,56 @@ app is reachable at `http://arr-vps:<port>` over Tailscale. Homepage's
 visit, rather than as a separate pass at the end — it's usually sitting on
 the same Settings page you're already on.
 
-1. **Tailscale** — approve the subnet route in the
+1. **Tailscale** — *requires: nothing.* Approve the subnet route in the
    [admin console](https://login.tailscale.com/admin/machines): find `arr-vps`,
    edit its route settings, approve `172.28.0.0/24`. Without this, qBittorrent
    (routed through gluetun) is unreachable even though everything else works.
-2. **Prowlarr** (`:9696`) — add indexers, then Settings → Apps → sync
-   Radarr/Sonarr/Lidarr so indexers propagate to all three automatically.
-   Grab its API key (Settings → General) for `HOMEPAGE_VAR_PROWLARR_KEY`.
-3. **Radarr** (`:7878`) — add a root folder (`/movies`) and a download
-   client pointing at qBittorrent (host `arr-vps`, port `8080`, your
-   qBittorrent credentials). Grab its API key (Settings → General) for
-   `HOMEPAGE_VAR_RADARR_KEY`.
-4. **Sonarr** (`:8989`) — same as Radarr, with root folder `/tv`. Grab its
-   API key for `HOMEPAGE_VAR_SONARR_KEY`.
-5. **Lidarr** (`:8686`) — same again, root folder `/music`. Copy its API key
-   (Settings → General) into **both** `.env`'s `LIDARR_API_KEY` (bootstrap
+   Everything below depends on this, since it's what makes `arr-vps:<port>`
+   reachable at all.
+2. **qBittorrent** (`:8080`) — *requires: step 1.* Set a download
+   category/save path. Do this before Radarr/Sonarr/Lidarr, since their
+   download-client setup (step 4) points at it. No API key needed for its
+   Homepage tile (widget uses your qBittorrent login instead).
+3. **slskd** (`:5030`) — *requires: step 1.* Confirm it connected to the
+   Soulseek network (its own `SLSKD_SLSK_USERNAME`/`PASSWORD` in `.env`,
+   distinct from the Web UI login). `SLSKD_REMOTE_CONFIGURATION=true` lets
+   you edit settings from the Web UI directly. Its `HOMEPAGE_VAR_SLSKD_KEY`
+   is just `SLSKD_API_KEY`, already set. Do this before soularr (step 8).
+4. **Radarr** (`:7878`) / **Sonarr** (`:8989`) / **Lidarr** (`:8686`) —
+   *requires: step 2.* Each needs a root folder (`/movies`, `/tv`, `/music`)
+   and a download client pointing at qBittorrent (host `arr-vps`, port
+   `8080`, your qBittorrent credentials). Grab each app's API key
+   (Settings → General) for its `HOMEPAGE_VAR_*_KEY`. For **Lidarr**
+   specifically, also copy its key into `.env`'s `LIDARR_API_KEY` (bootstrap
    uses it to template `config/soularr/config.ini` — until set, soularr
-   can't authenticate to Lidarr; a placeholder value unblocks the deploy
-   itself if Lidarr hasn't started yet, swap in the real key and redeploy
-   again once reachable) **and** `HOMEPAGE_VAR_LIDARR_KEY`, then redeploy
-   (`uv run deploy.py`).
-6. **qBittorrent** (`:8080`) — set a download category/save path matching
-   what Radarr/Sonarr/Lidarr expect. No API key needed for its Homepage
-   tile (widget uses your qBittorrent login instead).
-7. **slskd** (`:5030`) — confirm it connected to the Soulseek network (its
-   own `SLSKD_SLSK_USERNAME`/`PASSWORD` in `.env`, distinct from the Web UI
-   login). `SLSKD_REMOTE_CONFIGURATION=true` lets you edit settings from the
-   Web UI directly. Its `HOMEPAGE_VAR_SLSKD_KEY` is just `SLSKD_API_KEY`,
-   already set.
-8. **soularr** — no UI; verify it's working via `docker logs arr-soularr`.
-   Runs every `SCRIPT_INTERVAL` (300s) and depends on Lidarr/slskd being up
-   — a `connection refused` on the very first cycle after a fresh deploy is
-   usually just Lidarr/slskd still initializing, not a real failure.
-9. **Seerr** (`:5055`) — connect it to Radarr/Sonarr in Settings; Lidarr
-   music requests are not natively supported (Radarr/Sonarr-only). Grab its
-   API key (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
-10. **Jellyfin** (`:8096`) — run the setup wizard, add `/movies`, `/tv` as
-    libraries, then Dashboard → Libraries → Scan All Libraries after any new
-    download. Generate an API key (Dashboard → API Keys) for
-    `HOMEPAGE_VAR_JELLYFIN_KEY`.
-11. **Navidrome** (`:4533`) — points at `/music`; rescans automatically.
-    Intentionally not on Homepage (its widget needs manual Subsonic-style
-    token/salt setup, not a simple API key).
+   can't authenticate; a placeholder value unblocks the deploy itself if
+   Lidarr hasn't started yet, swap in the real key and redeploy again once
+   reachable) and redeploy (`uv run deploy.py`) before step 8. All three of
+   these must exist before Prowlarr's app sync (step 5) or Seerr's
+   connections (step 9) can point at them.
+5. **Prowlarr** (`:9696`) — *requires: step 4.* Add indexers, then
+   Settings → Apps → sync Radarr/Sonarr/Lidarr so indexers propagate to all
+   three automatically — this needs those three already reachable with
+   known API keys. Grab its own API key (Settings → General) for
+   `HOMEPAGE_VAR_PROWLARR_KEY`.
+6. **Jellyfin** (`:8096`) — *requires: nothing (independent of the arr apps'
+   config, only needs the filesystem).* Run the setup wizard, add `/movies`,
+   `/tv` as libraries, then Dashboard → Libraries → Scan All Libraries after
+   any new download. Generate an API key (Dashboard → API Keys) for
+   `HOMEPAGE_VAR_JELLYFIN_KEY`.
+7. **Navidrome** (`:4533`) — *requires: nothing.* Points at `/music`;
+   rescans automatically. Intentionally not on Homepage (its widget needs
+   manual Subsonic-style token/salt setup, not a simple API key).
+8. **soularr** — *requires: steps 3 and 4 (Lidarr's `LIDARR_API_KEY` must
+   already be in `.env` and redeployed, and slskd must be up).* No UI;
+   verify it's working via `docker logs arr-soularr`. Runs every
+   `SCRIPT_INTERVAL` (300s) — a `connection refused` on the very first cycle
+   after a fresh deploy is usually just Lidarr/slskd still initializing, not
+   a real failure.
+9. **Seerr** (`:5055`) — *requires: step 4 (Radarr/Sonarr already
+   configured).* Connect it to Radarr/Sonarr in Settings; Lidarr music
+   requests are not natively supported (Radarr/Sonarr-only). Grab its API
+   key (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
 
 After collecting the keys above, redeploy once more (`uv run deploy.py`) so
 Homepage picks them all up.
