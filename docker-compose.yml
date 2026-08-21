@@ -257,6 +257,61 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  navidrome:
+    image: deluan/navidrome:latest
+    container_name: arr-navidrome
+    network_mode: "service:tailscale"
+    environment:
+      - ND_LOGLEVEL=info
+      - TZ=${TZ}
+    volumes:
+      - ./config/navidrome:/data
+      - /mnt/remote-media/music:/music:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: arr-jellyfin
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - JELLYFIN_PublishedServerUrl=${JELLYFIN_PUBLISHED_SERVER_URL}
+    volumes:
+      - ./config/jellyfin:/config
+      - /mnt/remote-media/movies:/movies:rslave
+      - /mnt/remote-media/tv:/tv:rslave
+      - /mnt/remote-media/music:/music:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: arr-homepage
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - HOMEPAGE_ALLOWED_HOSTS=arr-vps:3000
+    volumes:
+      - ./config/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
 networks:
   vpn_net:
     driver: bridge
