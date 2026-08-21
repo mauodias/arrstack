@@ -110,10 +110,13 @@ the same Settings page you're already on.
    (routed through gluetun) is unreachable even though everything else works.
    Everything below depends on this, since it's what makes `arr-vps:<port>`
    reachable at all.
-2. **qBittorrent** (`:8080`) — *requires: step 1.* Set a download
-   category/save path. Do this before Radarr/Sonarr/Lidarr, since their
-   download-client setup (step 4) points at it. No API key needed for its
-   Homepage tile (widget uses your qBittorrent login instead).
+2. **qBittorrent** (`:8080`) — *requires: step 1.* Default login is
+   `admin` / a random password generated on first start — retrieve it with
+   `docker logs arr-qbittorrent | grep -i password`, then change it under
+   WebUI settings. Set a download category/save path. Do this before
+   Radarr/Sonarr/Lidarr, since their download-client setup (step 4) points
+   at it. No API key needed for its Homepage tile (widget uses your
+   qBittorrent login instead).
 3. **slskd** (`:5030`) — *requires: step 1.* Confirm it connected to the
    Soulseek network (its own `SLSKD_SLSK_USERNAME`/`PASSWORD` in `.env`,
    distinct from the Web UI login). `SLSKD_REMOTE_CONFIGURATION=true` lets
