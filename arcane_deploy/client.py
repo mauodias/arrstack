@@ -64,6 +64,9 @@ class ArcaneClient:
     def update_project(self, environment_id: str, project_id: str, payload: dict) -> dict:
         return self._request("PUT", f"/environments/{environment_id}/projects/{project_id}", payload)["data"]
 
+    def down_project(self, environment_id: str, project_id: str) -> dict:
+        return self._request("POST", f"/environments/{environment_id}/projects/{project_id}/down")["data"]
+
     def deploy_project(self, environment_id: str, project_id: str, redeploy: bool) -> dict:
         action = "redeploy" if redeploy else "up"
         return self._request("POST", f"/environments/{environment_id}/projects/{project_id}/{action}")["data"]

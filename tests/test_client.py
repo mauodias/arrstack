@@ -117,6 +117,14 @@ class TestArcaneClient(unittest.TestCase):
         self.assertEqual(request.full_url, "https://arcane.example.com/api/environments/env-1/projects/p1")
 
     @patch("arcane_deploy.client.urllib.request.urlopen")
+    def test_down_project_sends_post(self, mock_urlopen):
+        mock_urlopen.return_value = _fake_response({"success": True, "data": {"message": "ok"}})
+        self.client.down_project("env-1", "p1")
+        request = mock_urlopen.call_args[0][0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertTrue(request.full_url.endswith("/projects/p1/down"))
+
+    @patch("arcane_deploy.client.urllib.request.urlopen")
     def test_deploy_project_uses_up_when_not_redeploy(self, mock_urlopen):
         mock_urlopen.return_value = _fake_response({"success": True, "data": {"message": "ok"}})
         self.client.deploy_project("env-1", "p1", redeploy=False)

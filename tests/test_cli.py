@@ -97,7 +97,8 @@ class TestRun(unittest.TestCase):
             "composeContent": "services: {}",
             "envContent": "FOO=bar\n",
         })
-        mock_client.deploy_project.assert_called_once_with("env-1", "p1", redeploy=True)
+        mock_client.down_project.assert_called_once_with("env-1", "p1")
+        mock_client.deploy_project.assert_called_once_with("env-1", "p1", redeploy=False)
 
 
 if __name__ == "__main__":
