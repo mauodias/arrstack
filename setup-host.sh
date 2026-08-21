@@ -13,6 +13,13 @@ modprobe tun
 echo "Making /mnt a shared mount point..."
 mount --make-rshared /mnt
 
+echo "Making /mnt/remote-media its own shared bind mount..."
+mkdir -p /mnt/remote-media
+if ! mountpoint -q /mnt/remote-media; then
+    mount --bind /mnt/remote-media /mnt/remote-media
+fi
+mount --make-shared /mnt/remote-media
+
 echo "Installing a systemd unit to persist mount propagation across reboots..."
 cat > /etc/systemd/system/mnt-make-rshared.service <<'EOF'
 [Unit]
@@ -23,7 +30,7 @@ Before=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/mount --make-rshared /mnt
+ExecStart=/bin/bash -c 'mount --make-rshared /mnt; mkdir -p /mnt/remote-media; mountpoint -q /mnt/remote-media || mount --bind /mnt/remote-media /mnt/remote-media; mount --make-shared /mnt/remote-media'
 RemainAfterExit=yes
 
 [Install]
