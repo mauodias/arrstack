@@ -13,7 +13,7 @@ Full architecture, rationale, and per-service configuration notes:
 
 ## Applications
 
-16 services, all defined in `docker-compose.yml`.
+17 services, all defined in `docker-compose.yml`.
 
 ### Infrastructure
 
@@ -36,6 +36,7 @@ Full architecture, rationale, and per-service configuration notes:
   can't reach directly
 - **radarr** — movie acquisition and library management
 - **sonarr** — TV show acquisition and library management
+- **bazarr** — subtitle acquisition for content managed by Radarr/Sonarr
 - **lidarr** — music acquisition and library management
 - **slskd** — Soulseek P2P client, an alternate source for music beyond
   torrents
@@ -58,8 +59,8 @@ Full architecture, rationale, and per-service configuration notes:
 
 - `docker-compose.yml` — the whole stack: `bootstrap`, `rclone-mount`,
   `tailscale`, `gluetun`, `qbittorrent`, `prowlarr`, `flaresolverr`,
-  `radarr`, `sonarr`, `seerr`, `lidarr`, `slskd`, `soularr`, `navidrome`,
-  `jellyfin`, `homepage`
+  `radarr`, `sonarr`, `bazarr`, `seerr`, `lidarr`, `slskd`, `soularr`,
+  `navidrome`, `jellyfin`, `homepage`
 - `.env.example` — template for the local `.env` (gitignored, never
   committed)
 - `bootstrap/init.sh` — idempotent setup that runs as a compose service on
@@ -170,17 +171,34 @@ the same Settings page you're already on.
    `http://127.0.0.1:8191` (it shares the same Tailscale network namespace),
    then apply it to the indexers that need it. Grab Prowlarr's own API key
    (Settings → General) for `HOMEPAGE_VAR_PROWLARR_KEY`.
-6. **Jellyfin** (`:8096`) — *requires: nothing (independent of the arr
+6. **Bazarr** (`:6767`) — *requires: step 4 (Radarr/Sonarr already
+   configured, so Bazarr has something to connect to).* First visit
+   prompts for an authentication username/password like the other arr
+   apps — set that first. Settings → Radarr / Settings → Sonarr: connect
+   using `127.0.0.1:7878`/`127.0.0.1:8989` (same-namespace, like the rest
+   of Section 5's app-interconnection notes) and each app's API key from
+   step 4. Settings → Languages: add the subtitle languages you want.
+   Settings → Providers: add subtitle providers — anonymous/no-account
+   providers work out of the box with lower rate limits; an
+   OpenSubtitles.com account (added here, not `.env` — Bazarr stores it
+   in its own config) gives better reliability if you have one. Grab its
+   API key (Settings → General → Security) for `HOMEPAGE_VAR_BAZARR_KEY`.
+7. **Jellyfin** (`:8096`) — *requires: nothing (independent of the arr
    apps' config, only needs the filesystem).* Run the setup wizard —
    **finish the whole wizard first**; the API key appears mid-wizard on one
    of its screens, which is easy to miss or misread as optional. If you
    miss it, generate one afterward via Dashboard → API Keys. Add `/movies`,
    `/tv` as libraries, then Dashboard → Libraries → Scan All Libraries
    after any new download. That key goes to `HOMEPAGE_VAR_JELLYFIN_KEY`.
-7. **Navidrome** (`:4533`) — *requires: nothing.* Points at `/music`;
+   Real-time library monitoring is unreliable over the rclone mount (relies
+   on `inotify`, which rclone's FUSE layer doesn't generate) — set up a
+   scheduled **Scan Media Library** task (Dashboard → Scheduled Tasks,
+   minimum interval 15 min) as the reliable fallback; it scans all
+   libraries together, no per-library scheduling exists.
+8. **Navidrome** (`:4533`) — *requires: nothing.* Points at `/music`;
    rescans automatically. Intentionally not on Homepage (its widget needs
    manual Subsonic-style token/salt setup, not a simple API key).
-8. **soularr** — *requires: steps 3 and 4 (Lidarr's `LIDARR_API_KEY` must
+9. **soularr** — *requires: steps 3 and 4 (Lidarr's `LIDARR_API_KEY` must
    already be in `.env` and redeployed, and slskd must be up).* Mostly
    headless, but it does serve a minimal Web UI at `:8265` — there's little
    to configure there, but it's useful for viewing the generated
@@ -189,12 +207,12 @@ the same Settings page you're already on.
    via `docker logs arr-soularr`. Runs every `SCRIPT_INTERVAL` (300s) — a
    `connection refused` on the very first cycle after a fresh deploy is
    usually just Lidarr/slskd still initializing, not a real failure.
-9. **Seerr** (`:5055`) — *requires: step 4 (Radarr/Sonarr already
-   configured).* Complete its own setup wizard and connect it to
-   Radarr/Sonarr in Settings first — **its API key only becomes available
-   after setup is finished**, not before. Lidarr music requests are not
-   natively supported (Radarr/Sonarr-only). Grab the API key
-   (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
+10. **Seerr** (`:5055`) — *requires: step 4 (Radarr/Sonarr already
+    configured).* Complete its own setup wizard and connect it to
+    Radarr/Sonarr in Settings first — **its API key only becomes available
+    after setup is finished**, not before. Lidarr music requests are not
+    natively supported (Radarr/Sonarr-only). Grab the API key
+    (Settings → Notifications → API key) for `HOMEPAGE_VAR_SEERR_KEY`.
 
 After collecting the keys above, redeploy once more (`uv run deploy.py`) so
 Homepage picks them all up.

@@ -24,8 +24,8 @@ This specification defines the deployment of an automated media acquisition and 
                                           | (network_mode: "service:tailscale")
                                           |
    Acquisition/management apps (share this netns, talk to each other over 127.0.0.1):
-     Radarr (7878)  Sonarr (8989)  Prowlarr (9696)  Seerr (5055)  Lidarr (8686)
-     slskd (5030)   soularr (n/a)  Homepage (3000)
+     Radarr (7878)  Sonarr (8989)  Bazarr (6767)  Prowlarr (9696)  Seerr (5055)
+     Lidarr (8686)  slskd (5030)   soularr (n/a)   Homepage (3000)
                                           |
    Consumption apps (same netns, read media straight off the mount):
      Navidrome (4533)   Jellyfin (8096)
@@ -89,6 +89,13 @@ exposure). Soulseek (used by slskd) is a P2P network without the
 public-peer-list/swarm exposure model of BitTorrent, so slskd does not
 route through Gluetun — it shares the same trust model as the other
 Tailscale-only application containers, not qBittorrent's.
+
+Bazarr connects to Radarr and Sonarr over `127.0.0.1` (same netns, same
+pattern as Prowlarr's app sync) to pull subtitles for content those two
+already manage, and reads/writes `/movies` and `/tv` directly (subtitle
+files are written alongside the media they belong to) — no `/downloads`
+access needed, since it never handles acquisition itself. It has no
+relationship to Lidarr/slskd/soularr's music pipeline.
 
 ---
 
@@ -239,6 +246,7 @@ JELLYFIN_PUBLISHED_SERVER_URL=http://arr-vps:8096
 HOMEPAGE_VAR_PROWLARR_KEY=
 HOMEPAGE_VAR_RADARR_KEY=
 HOMEPAGE_VAR_SONARR_KEY=
+HOMEPAGE_VAR_BAZARR_KEY=
 HOMEPAGE_VAR_SEERR_KEY=
 HOMEPAGE_VAR_LIDARR_KEY=
 HOMEPAGE_VAR_SLSKD_KEY=
@@ -460,6 +468,29 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: arr-bazarr
+    network_mode: "service:tailscale"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/bazarr:/config
+      - /mnt/remote-media/movies:/movies:rslave
+      - /mnt/remote-media/tv:/tv:rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+      radarr:
+        condition: service_started
+      sonarr:
+        condition: service_started
+      tailscale:
+        condition: service_started
+    restart: unless-stopped
+
   seerr:
     image: ghcr.io/seerr-team/seerr:latest
     container_name: arr-seerr
@@ -591,6 +622,7 @@ services:
       - HOMEPAGE_VAR_PROWLARR_KEY=${HOMEPAGE_VAR_PROWLARR_KEY}
       - HOMEPAGE_VAR_RADARR_KEY=${HOMEPAGE_VAR_RADARR_KEY}
       - HOMEPAGE_VAR_SONARR_KEY=${HOMEPAGE_VAR_SONARR_KEY}
+      - HOMEPAGE_VAR_BAZARR_KEY=${HOMEPAGE_VAR_BAZARR_KEY}
       - HOMEPAGE_VAR_SEERR_KEY=${HOMEPAGE_VAR_SEERR_KEY}
       - HOMEPAGE_VAR_LIDARR_KEY=${HOMEPAGE_VAR_LIDARR_KEY}
       - HOMEPAGE_VAR_SLSKD_KEY=${HOMEPAGE_VAR_SLSKD_KEY}
@@ -699,11 +731,6 @@ Calibre install.
 
 ### 8.2 Backlog (deferred until the current pipeline is stable)
 
-* **Bazarr** (subtitles): would slot in alongside Radarr/Sonarr (same
-  Servarr model — pulls subtitles for content those two already manage).
-  Needs a design pass on which arr apps it hooks into, its own indexer/
-  provider config, and where its container fits network/volume-wise
-  before it's added to Section 5.
 * **Homepage Storage Box widget:** replace (or supplement) the local-disk
   `resources` widget noted in Section 10.1 with actual Hetzner Storage Box
   used/free — likely via `rclone about hetzner_box:` over rclone's `--rc`

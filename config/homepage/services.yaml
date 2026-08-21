@@ -39,6 +39,14 @@
           url: http://arr-vps:8989
           key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
 
+    - Bazarr:
+        href: http://arr-vps:6767
+        icon: bazarr.png
+        widget:
+          type: bazarr
+          url: http://arr-vps:6767
+          key: "{{HOMEPAGE_VAR_BAZARR_KEY}}"
+
     - Seerr:
         href: http://arr-vps:5055
         icon: seerr.png
