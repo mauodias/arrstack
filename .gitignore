@@ -5,6 +5,8 @@ config/*
 !config/homepage/
 config/homepage/*
 !config/homepage/services.yaml
+!config/homepage/settings.yaml
+!config/homepage/widgets.yaml
 # Exception: soularr's config.ini template is a human-authored, secret-free
 # placeholder committed to the repo; bootstrap fetches it and substitutes
 # real API keys from the environment to produce the runtime config.ini.

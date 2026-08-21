@@ -6,13 +6,15 @@ MEDIA_ROOT="${MEDIA_ROOT:-/mnt/remote-media}"
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
-CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage"
+CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr bazarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage"
 
-# services.yaml is a git-committed, human-authored exception to the usual
-# rule that config/* is runtime state never committed to the repo. It is
-# fetched from GitHub here (same pattern docker-compose.yml uses to fetch
-# this very script) so operator edits actually reach the host on redeploy.
-SERVICES_YAML_URL="${SERVICES_YAML_URL:-https://raw.githubusercontent.com/mauodias/arrstack/main/config/homepage/services.yaml}"
+# Homepage's dashboard config files are git-committed, human-authored
+# exceptions to the usual rule that config/* is runtime state never committed
+# to the repo. They are fetched from GitHub here (same pattern
+# docker-compose.yml uses to fetch this very script) so operator edits
+# actually reach the host on redeploy.
+HOMEPAGE_CONFIG_BASE_URL="${HOMEPAGE_CONFIG_BASE_URL:-https://raw.githubusercontent.com/mauodias/arrstack/main/config/homepage}"
+HOMEPAGE_CONFIG_FILES="services.yaml settings.yaml widgets.yaml"
 
 # soularr has no web UI, so its config.ini (with real API keys) can't be
 # hand-authored through a UI and can't be committed as-is (public repo). The
@@ -35,11 +37,13 @@ for dir in $CONFIG_DIRS; do
     mkdir -p "$WORKSPACE/config/$dir"
 done
 
-if ! wget -qO "$WORKSPACE/config/homepage/services.yaml" "$SERVICES_YAML_URL"; then
-    echo "ERROR: failed to fetch services.yaml from $SERVICES_YAML_URL" >&2
-    exit 1
-fi
-echo "Fetched config/homepage/services.yaml"
+for file in $HOMEPAGE_CONFIG_FILES; do
+    if ! wget -qO "$WORKSPACE/config/homepage/$file" "$HOMEPAGE_CONFIG_BASE_URL/$file"; then
+        echo "ERROR: failed to fetch $file from $HOMEPAGE_CONFIG_BASE_URL/$file" >&2
+        exit 1
+    fi
+    echo "Fetched config/homepage/$file"
+done
 
 if ! wget -qO "$WORKSPACE/config/soularr/config.ini" "$SOULARR_CONFIG_TEMPLATE_URL"; then
     echo "ERROR: failed to fetch config.ini.template from $SOULARR_CONFIG_TEMPLATE_URL" >&2

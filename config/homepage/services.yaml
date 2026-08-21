@@ -3,20 +3,133 @@
 # Unlike other config/* directories in this repo (which are runtime state
 # managed by each app's own UI/database and are never committed), this file
 # is human-authored infrastructure for the Homepage dashboard and IS
-# committed to git.
+# committed to git — as are settings.yaml (layout/theme) and widgets.yaml
+# (the info-widget header row).
 #
-# All apps below are reachable via Tailscale at http://arr-vps:<port>.
-# qBittorrent is intentionally excluded from Tailscale-hostname access
-# (reachable only via the Tailscale subnet route at 172.28.0.10:8080, not
-# via arr-vps). homepage itself is excluded.
+# Group names below MUST match the `layout:` keys in settings.yaml exactly,
+# or the group loses its icon/column settings and sorts alphabetically.
+#
+# Most apps are reachable via Tailscale at http://arr-vps:<port>.
+# qBittorrent is the exception: it lives in gluetun's network namespace and
+# is reached over the Tailscale subnet route at 172.28.0.10:8080.
 #
 # Widget API keys are injected via {{HOMEPAGE_VAR_XXX}} placeholders, which
 # Homepage substitutes at runtime from HOMEPAGE_VAR_* environment variables
 # (see docker-compose.yml's homepage service and .env.example).
 
+- Watch & Request:
+    - Jellyfin:
+        href: http://arr-vps:8096
+        icon: jellyfin.png
+        description: Movies & TV streaming
+        widget:
+          type: jellyfin
+          url: http://arr-vps:8096
+          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+
+    # Navidrome: no live-stats widget configured. Homepage's `navidrome`
+    # widget type requires Subsonic-style MD5(password+salt) token auth
+    # (url, user, token, salt) which is too complex to template cleanly
+    # via a simple API key. If desired later, add a widget block here with
+    # a manually-generated Subsonic token/salt pair — see
+    # https://gethomepage.dev/widgets/services/navidrome/
+    - Navidrome:
+        href: http://arr-vps:4533
+        icon: navidrome.png
+        description: Music streaming
+
+    - Seerr:
+        href: http://arr-vps:5055
+        icon: seerr.png
+        description: Request movies & shows
+        widget:
+          type: seerr
+          url: http://arr-vps:5055
+          key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
+
+- Movies & TV:
+    - Radarr:
+        href: http://arr-vps:7878
+        icon: radarr.png
+        description: Movie library
+        widget:
+          type: radarr
+          url: http://arr-vps:7878
+          key: "{{HOMEPAGE_VAR_RADARR_KEY}}"
+
+    - Sonarr:
+        href: http://arr-vps:8989
+        icon: sonarr.png
+        description: TV library
+        widget:
+          type: sonarr
+          url: http://arr-vps:8989
+          key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
+
+    - Bazarr:
+        href: http://arr-vps:6767
+        icon: bazarr.png
+        description: Subtitles
+        widget:
+          type: bazarr
+          url: http://arr-vps:6767
+          key: "{{HOMEPAGE_VAR_BAZARR_KEY}}"
+
+- Music:
+    - Lidarr:
+        href: http://arr-vps:8686
+        icon: lidarr.png
+        description: Music library
+        widget:
+          type: lidarr
+          url: http://arr-vps:8686
+          key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
+
+    - slskd:
+        href: http://arr-vps:5030
+        icon: slskd.png
+        description: Soulseek P2P
+        widget:
+          type: slskd
+          url: http://arr-vps:5030
+          key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
+
+    # soularr: plain link, no widget — it exposes no stats API. The tile is
+    # for quick access to its minimal UI, which shows the generated
+    # config.ini. mdi- icon because dashboard-icons has no soularr logo.
+    - soularr:
+        href: http://arr-vps:8265
+        icon: mdi-transit-connection-variant
+        description: Bridges Lidarr wanted list to slskd
+
+- Acquisition:
+    - Prowlarr:
+        href: http://arr-vps:9696
+        icon: prowlarr.png
+        description: Indexer manager
+        widget:
+          type: prowlarr
+          url: http://arr-vps:9696
+          key: "{{HOMEPAGE_VAR_PROWLARR_KEY}}"
+
+    # qBittorrent: plain link, no widget. Uses 172.28.0.10:8080 (gluetun's
+    # fixed IP on the vpn_net subnet route, NOT arr-vps) to keep
+    # qBittorrent/gluetun isolated for VPN safety. Widget IS possible later
+    # (v5.2+ supports API key auth, or use username/password); skipped here
+    # to avoid putting WebUI credentials in .env.
+    - qBittorrent:
+        href: http://172.28.0.10:8080
+        icon: qbittorrent.png
+        description: Torrents, VPN-isolated via gluetun
+
 - Storage:
+    # Queries rclone-mount's own --rc HTTP API over the internal Docker
+    # network (never published externally), authenticated with the
+    # RCLONE_RC_USER/RCLONE_RC_PASS credentials from .env. mdi- icon because
+    # dashboard-icons has no Hetzner Storage Box logo.
     - Hetzner Storage Box:
-        icon: hetzner.png
+        icon: mdi-harddisk
+        description: Remote media storage over WebDAV
         widget:
           type: customapi
           url: http://arr-rclone:5572/operations/about
@@ -37,94 +150,3 @@
             - field: total
               label: Total
               format: bytes
-
-- Media Stack:
-    - Prowlarr:
-        href: http://arr-vps:9696
-        icon: prowlarr.png
-        widget:
-          type: prowlarr
-          url: http://arr-vps:9696
-          key: "{{HOMEPAGE_VAR_PROWLARR_KEY}}"
-
-    - Radarr:
-        href: http://arr-vps:7878
-        icon: radarr.png
-        widget:
-          type: radarr
-          url: http://arr-vps:7878
-          key: "{{HOMEPAGE_VAR_RADARR_KEY}}"
-
-    - Sonarr:
-        href: http://arr-vps:8989
-        icon: sonarr.png
-        widget:
-          type: sonarr
-          url: http://arr-vps:8989
-          key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
-
-    - Bazarr:
-        href: http://arr-vps:6767
-        icon: bazarr.png
-        widget:
-          type: bazarr
-          url: http://arr-vps:6767
-          key: "{{HOMEPAGE_VAR_BAZARR_KEY}}"
-
-    - Seerr:
-        href: http://arr-vps:5055
-        icon: seerr.png
-        widget:
-          type: seerr
-          url: http://arr-vps:5055
-          key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
-
-    - Lidarr:
-        href: http://arr-vps:8686
-        icon: lidarr.png
-        widget:
-          type: lidarr
-          url: http://arr-vps:8686
-          key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
-
-    - slskd:
-        href: http://arr-vps:5030
-        icon: slskd.png
-        widget:
-          type: slskd
-          url: http://arr-vps:5030
-          key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
-
-    - Jellyfin:
-        href: http://arr-vps:8096
-        icon: jellyfin.png
-        widget:
-          type: jellyfin
-          url: http://arr-vps:8096
-          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
-
-    # Navidrome: no live-stats widget configured. Homepage's `navidrome`
-    # widget type requires Subsonic-style MD5(password+salt) token auth
-    # (url, user, token, salt) which is too complex to template cleanly
-    # via a simple API key. If desired later, add a widget block here with
-    # a manually-generated Subsonic token/salt pair — see
-    # https://gethomepage.dev/widgets/services/navidrome/
-    - Navidrome:
-        href: http://arr-vps:4533
-        icon: navidrome.png
-
-    # qBittorrent: plain link, no widget. Uses 172.28.0.10:8080 (a fixed
-    # Docker network IP on a separate subnet route, NOT arr-vps) to keep
-    # qBittorrent/gluetun isolated for VPN safety. Widget IS possible later
-    # (v5.2+ supports API key auth, or use username/password); skipped here
-    # to avoid needing extra WebUI credential setup in .env.
-    - qBittorrent:
-        href: http://172.28.0.10:8080
-        icon: qbittorrent.png
-
-    # soularr: plain link, no widget. It has no public API to pull stats
-    # from — this tile just gives quick access to its minimal UI, which
-    # shows the generated config.ini.
-    - soularr:
-        href: http://arr-vps:8265
-        icon: soularr.png

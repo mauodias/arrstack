@@ -356,6 +356,11 @@ services:
       - HOMEPAGE_VAR_JELLYFIN_KEY=${HOMEPAGE_VAR_JELLYFIN_KEY}
     volumes:
       - ./config/homepage:/app/config
+      # Read-only, purely so the `resources` info widget (config/homepage/
+      # widgets.yaml) can report the VPS's own disk usage — the rclone VFS
+      # cache lives here and can fill local disk independently of Storage
+      # Box capacity.
+      - ./data/rclone-cache:/mnt/rclone-cache:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       tailscale:

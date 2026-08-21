@@ -1,0 +1,38 @@
+---
+# Homepage information widgets (the header row above the service groups).
+# Human-authored, committed to git, fetched from GitHub by bootstrap/init.sh
+# on every deploy — same treatment as services.yaml and settings.yaml.
+
+- datetime:
+    text_size: xl
+    locale: en-GB
+    format:
+      dateStyle: medium
+      timeStyle: short
+      hourCycle: h23
+
+# Open-Meteo needs no API key or registration.
+- openmeteo:
+    label: Amsterdam
+    latitude: 52.3676
+    longitude: 4.9041
+    timezone: Europe/Amsterdam
+    units: metric
+    cache: 15
+
+# `disk` points at the rclone VFS cache, which is bind-mounted read-only into
+# the homepage container (docker-compose.yml). It reports the VPS's own disk,
+# not Storage Box capacity — deliberately so: the 100G cache lives on local
+# disk and can fill up and break writes even while the Storage Box has room.
+# Remote Storage Box capacity is the customapi widget in services.yaml.
+- resources:
+    label: VPS
+    cpu: true
+    memory: true
+    uptime: true
+    disk: /mnt/rclone-cache
+
+- search:
+    provider: duckduckgo
+    showSearchSuggestions: true
+    target: _blank

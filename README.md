@@ -67,13 +67,19 @@ Full architecture, rationale, and per-service configuration notes:
   every deploy: creates `config/`/`data/` directories (media directories
   under `/mnt/remote-media` are created separately, by `rclone-mount`
   itself over WebDAV — see `SPEC.md` Section 3.2), validates the Hetzner/
-  Lidarr/slskd env vars are set, fetches `config/homepage/services.yaml`
+  Lidarr/slskd env vars are set, fetches Homepage's three config files
   from GitHub, and templates `config/soularr/config.ini` from
   `config/soularr/config.ini.template` (also fetched from GitHub) using
   `LIDARR_API_KEY`/`SLSKD_API_KEY`
-- `config/homepage/services.yaml` — Homepage's dashboard tile definitions;
-  the one file under `config/` that's committed to git rather than
-  runtime state (everything else under `config/` is gitignored)
+- `config/homepage/` — the Homepage dashboard's three human-authored
+  config files, the only files under `config/` committed to git rather
+  than being runtime state (everything else under `config/` is gitignored):
+  `services.yaml` (tiles and their widgets), `settings.yaml` (theme, group
+  order, per-group icons and column counts), and `widgets.yaml` (the
+  clock/weather/resources/search header row). Group names in
+  `services.yaml` must match the `layout:` keys in `settings.yaml` exactly,
+  or a group silently loses its icon and column settings and falls back to
+  alphabetical ordering.
 - `arcane_deploy/` — the Arcane API client and CLI logic (`env.py` for
   `.env` parsing, `client.py` for the Arcane API, `cli.py` for the
   entrypoint logic)
@@ -234,14 +240,14 @@ Normal edits (e.g. `docker-compose.yml`, `.env`): just run
 `uv run deploy.py` again — it's idempotent and updates the existing Arcane
 project in place.
 
-**Important exception:** `bootstrap/init.sh` and
-`config/homepage/services.yaml` are *not* pushed by `deploy.py`. The
-`bootstrap` service fetches `bootstrap/init.sh` from GitHub's `main` branch
-at container start (so the script and this repo never drift out of sync),
-and `init.sh` in turn fetches `config/homepage/services.yaml` from `main`
+**Important exception:** `bootstrap/init.sh` and everything under
+`config/homepage/` are *not* pushed by `deploy.py`. The `bootstrap` service
+fetches `bootstrap/init.sh` from GitHub's `main` branch at container start
+(so the script and this repo never drift out of sync), and `init.sh` in
+turn fetches `config/homepage/{services,settings,widgets}.yaml` from `main`
 too. Arcane's deploy API only provisions `docker-compose.yml` and `.env` on
-the host — it does not clone the rest of the repo. So if you edit either of
-those two files, **you must `git push` to `main` first**, then run
+the host — it does not clone the rest of the repo. So if you edit any of
+those files, **you must `git push` to `main` first**, then run
 `uv run deploy.py` — otherwise the deploy will run against your old,
 already-pushed version and your local edits will silently not take effect.
 

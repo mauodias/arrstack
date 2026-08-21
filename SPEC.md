@@ -640,6 +640,11 @@ services:
       - HOMEPAGE_VAR_JELLYFIN_KEY=${HOMEPAGE_VAR_JELLYFIN_KEY}
     volumes:
       - ./config/homepage:/app/config
+      # Read-only, purely so the `resources` info widget (config/homepage/
+      # widgets.yaml) can report the VPS's own disk usage — the rclone VFS
+      # cache lives here and can fill local disk independently of Storage
+      # Box capacity.
+      - ./data/rclone-cache:/mnt/rclone-cache:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       tailscale:
@@ -853,9 +858,17 @@ directly from each app's API:
 Runs as a 7th Tailscale-network application (Section 5, alongside the
 other consumer apps) — no public exposure, consistent with Section 1.1.
 It needs read-only access to the Docker socket (`/var/run/docker.sock`)
-for container status widgets, in addition to each app's API key
-(configured in `config/homepage/services.yaml`, created locally like the
-other per-app config — not templated in git per Section 9.1).
+for container status widgets, and a read-only bind of `./data/rclone-cache`
+so the `resources` info widget can report local VPS disk usage (Section
+10.1). Its three config files — `services.yaml` (tiles/widgets),
+`settings.yaml` (theme, group order, per-group icons and columns) and
+`widgets.yaml` (the clock/weather/resources/search header row) — are
+human-authored and committed to git, unlike every other `config/*`
+directory, and are fetched from GitHub by `bootstrap` on each deploy
+(Section 11.1). Group names in `services.yaml` must match the `layout:`
+keys in `settings.yaml` exactly or the group loses its icon/column
+settings. Per-app API keys are injected as `HOMEPAGE_VAR_*` environment
+variables (Section 4.2), never committed.
 
 ---
 

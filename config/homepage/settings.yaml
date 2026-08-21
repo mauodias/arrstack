@@ -1,0 +1,51 @@
+---
+# Homepage dashboard settings.
+# Like services.yaml and widgets.yaml, this is human-authored infrastructure
+# committed to git (an exception to config/* being runtime state) and fetched
+# from GitHub by bootstrap/init.sh on every deploy.
+
+title: arrstack
+description: Private media stack, reachable over Tailscale only
+
+theme: dark
+color: slate
+headerStyle: boxedWidgets
+cardBlur: sm
+
+# Small dot beside each service rather than a wordy status pill.
+statusStyle: dot
+useEqualHeights: true
+
+hideVersion: true
+disableUpdateCheck: true
+target: _blank
+
+# Group order, icons and per-group column counts. Group names here MUST match
+# the group names in services.yaml exactly, or the group falls back to the
+# default layout and sorts alphabetically.
+layout:
+  Watch & Request:
+    icon: mdi-play-circle-outline
+    style: row
+    columns: 3
+  Movies & TV:
+    icon: mdi-movie-open-outline
+    style: row
+    columns: 3
+  Music:
+    icon: mdi-music-note
+    style: row
+    columns: 3
+  Acquisition:
+    icon: mdi-download-outline
+    style: row
+    columns: 2
+  Storage:
+    icon: mdi-database-outline
+    style: row
+    columns: 1
+
+quicklaunch:
+  searchDescriptions: true
+  showSearchSuggestions: true
+  provider: duckduckgo
