@@ -132,11 +132,15 @@
     # added, this would need to target it by id instead of index 0.
     # mdi- icon because dashboard-icons has no Hetzner Storage Box logo.
     - Hetzner Storage Box:
+        href: https://console.hetzner.com/projects
         icon: mdi-harddisk
-        # Static, not a widget mapping: the account only has one box, and its
-        # user ID (u654700) doesn't change, so there's no reason to spend an
-        # API field on it — it belongs in the subtitle, not as tile data.
-        description: "User ID: u654700"
+        # Sourced from HETZNER_STORAGEBOX_USER via HOMEPAGE_VAR templating
+        # (docker-compose.yml), not hardcoded — same {{HOMEPAGE_VAR_*}}
+        # mechanism used for widget API keys, works in any field of this
+        # file, not just inside widget: blocks. Kept out of the widget's
+        # own `mappings` deliberately: it's a subtitle, not tile data, and
+        # it doesn't need a live API call since it's static per-account.
+        description: "User ID: {{HOMEPAGE_VAR_HETZNER_STORAGEBOX_USER}}"
         widget:
           type: customapi
           url: https://api.hetzner.com/v1/storage_boxes
