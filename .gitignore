@@ -16,3 +16,6 @@ config/soularr/*
 data/
 __pycache__/
 *.pyc
+
+# Local diagnostic scripts (contain no secrets, but are scratch work)
+.claude/
