@@ -103,10 +103,10 @@ Full architecture, rationale, and per-service configuration notes:
    auth key, AirVPN WireGuard config, Soulseek/slskd credentials, and the
    `LIDARR_API_KEY` (a placeholder is fine for now — see Post-deployment
    step 4 below) and `SLSKD_API_KEY` non-empty (`bootstrap` fails otherwise),
-   and `RCLONE_RC_USER`/`RCLONE_RC_PASS` (any random credential — this
-   authenticates rclone's internal-only `--rc` API, used by Homepage's
-   Storage Box widget; generate with
-   `openssl rand -base64 24 | tr -d '=+/' | cut -c1-24`).
+   and `HETZNER_API_TOKEN` (a **read-only** Hetzner Cloud API token —
+   Console → Security → API Tokens → Generate API Token → Permissions:
+   Read — used by Homepage's Storage Box widget to query used/total
+   capacity directly from Hetzner's API).
    The `HOMEPAGE_VAR_*` API keys can't be filled in yet — they only exist
    after each app's own first-run setup (see Post-deployment setup below);
    leave them blank for now. `.env` is gitignored and never enters version
@@ -285,8 +285,11 @@ Settings → General → Security (Bazarr). Navidrome is intentionally left
 out — its widget needs manual Subsonic-style token/salt setup instead of
 a simple API key; see `config/homepage/services.yaml` for details.
 
-The Storage tile (Hetzner Storage Box used/free/total) doesn't use an
-app API key — it queries `rclone-mount`'s own `--rc` HTTP API directly
-over the internal Docker network (never published externally), using
-`RCLONE_RC_USER`/`RCLONE_RC_PASS` from `.env` (any random credential;
-see First-time setup above).
+The Storage tile (Hetzner Storage Box used/total) doesn't use an app API
+key — it queries Hetzner's own Cloud API directly, using the read-only
+`HETZNER_API_TOKEN` from `.env` (see First-time setup above). This isn't
+routed through rclone: rclone's WebDAV backend never receives quota data
+from Hetzner's server (RFC 4331 properties aren't returned), so
+`rclone about` — and any widget built on it — always got back an empty
+result. That's a structural limitation of WebDAV-to-this-server, not a
+config problem, so Hetzner's own API is the only route that works.

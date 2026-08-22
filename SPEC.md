@@ -48,7 +48,7 @@ This specification defines the deployment of an automated media acquisition and 
 
   Notes:
   * Homepage (dashboard) aggregates *arr/qBittorrent/Jellyfin stats via their APIs,
-    plus rclone 'about' for Storage Box used/free (Section 10).
+    plus Hetzner's own Cloud API for Storage Box used/total (Section 10).
   * soularr has no exposed port; it bridges Lidarr and slskd (both on this same
     netns) over 127.0.0.1 on a schedule.
 
@@ -205,13 +205,15 @@ ARCANE_PROJECT_NAME=arr-stack
 # Generate HETZNER_STORAGEBOX_PASS_OBSCURED with: rclone obscure '<password>'
 HETZNER_STORAGEBOX_USER=
 HETZNER_STORAGEBOX_PASS_OBSCURED=
-# rclone's --rc HTTP API (Section 10.1) — internal-network-only, used by the
-# Homepage Storage Box widget to query used/free/total space. Any random
-# credential works (rclone just needs SOME auth here, never --rc-no-auth,
-# since a shell-equivalent API must not be exposed unauthenticated even on
-# an internal network). Generate with: openssl rand -base64 24 | tr -d '=+/' | cut -c1-24
-RCLONE_RC_USER=
-RCLONE_RC_PASS=
+
+# --- Hetzner Cloud API (Section 10.1) ---
+# Used by the Homepage Storage Box widget for used/total capacity — queried
+# directly from Hetzner's own API, not through rclone (rclone's WebDAV
+# backend never gets quota data from Hetzner's server; this is a structural
+# limitation of that combination, not a config issue).
+# Generate a READ-ONLY token: Hetzner Cloud Console -> Security -> API
+# Tokens -> Generate API Token -> Permissions: Read.
+HETZNER_API_TOKEN=
 
 # --- Tailscale ---
 TS_AUTHKEY=
@@ -333,15 +335,13 @@ services:
       - RCLONE_CONFIG_HETZNER_BOX_VENDOR=other
       - RCLONE_CONFIG_HETZNER_BOX_USER=${HETZNER_STORAGEBOX_USER}
       - RCLONE_CONFIG_HETZNER_BOX_PASS=${HETZNER_STORAGEBOX_PASS_OBSCURED}
-      - RCLONE_RC_USER=${RCLONE_RC_USER}
-      - RCLONE_RC_PASS=${RCLONE_RC_PASS}
     volumes:
       - ./data/rclone-cache:/cache
       - /mnt/remote-media:/data:shared
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --rc --rc-addr :5572 --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
@@ -674,8 +674,7 @@ services:
       - HOMEPAGE_VAR_RADARR_KEY=${HOMEPAGE_VAR_RADARR_KEY}
       - HOMEPAGE_VAR_SONARR_KEY=${HOMEPAGE_VAR_SONARR_KEY}
       - HOMEPAGE_VAR_BAZARR_KEY=${HOMEPAGE_VAR_BAZARR_KEY}
-      - HOMEPAGE_VAR_RCLONE_RC_USER=${RCLONE_RC_USER}
-      - HOMEPAGE_VAR_RCLONE_RC_PASS=${RCLONE_RC_PASS}
+      - HOMEPAGE_VAR_HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
       - HOMEPAGE_VAR_SEERR_KEY=${HOMEPAGE_VAR_SEERR_KEY}
       - HOMEPAGE_VAR_LIDARR_KEY=${HOMEPAGE_VAR_LIDARR_KEY}
       - HOMEPAGE_VAR_SLSKD_KEY=${HOMEPAGE_VAR_SLSKD_KEY}
@@ -895,17 +894,27 @@ the stack has multiple end users (Section 10.3).
 Homepage (`gethomepage/homepage`) is configured with widgets pulling
 directly from each app's API:
 
-* **Storage:** actual Hetzner Storage Box used/free/total, via a Homepage
-  `customapi` widget (`config/homepage/services.yaml`) that calls
-  `rclone-mount`'s own `--rc` HTTP API (`--rc --rc-addr :5572`, Section 5)
-  at its internal Docker DNS name `http://arr-rclone:5572/operations/about`
-  — reachable only within the internal Docker network (no published port),
-  authenticated with `RCLONE_RC_USER`/`RCLONE_RC_PASS` (Section 4.2; rclone's
-  rc API is explicitly documented as shell-equivalent access, so it's never
-  run with `--rc-no-auth`, even though it's already internal-network-only).
-  Homepage passes those same credentials through as
-  `HOMEPAGE_VAR_RCLONE_RC_USER`/`HOMEPAGE_VAR_RCLONE_RC_PASS`. This shows
-  remote capacity only. Local VPS disk usage for the `--vfs-cache`
+* **Storage:** actual Hetzner Storage Box used/total, via a Homepage
+  `customapi` widget (`config/homepage/services.yaml`) hitting Hetzner's
+  own Cloud API directly (`GET https://api.hetzner.com/v1/storage_boxes`),
+  authenticated with a **read-only** `HETZNER_API_TOKEN` (Section 4.2),
+  passed through as `HOMEPAGE_VAR_HETZNER_API_TOKEN`. The account has one
+  Storage Box, so the widget maps `storage_boxes.0.stats.size` (used) and
+  `storage_boxes.0.storage_box_type.size` (total) — a second box would need
+  targeting by id instead of array index.
+
+  This was originally attempted through rclone (`operations/about` over
+  rclone's `--rc` HTTP API, reachable only within the internal Docker
+  network, never published) and abandoned: Hetzner's WebDAV endpoint never
+  returns RFC 4331 quota properties, so `rclone about` — and any widget
+  built on it — always got back an empty `{}`. That's a structural
+  limitation of WebDAV against this specific server, not a rclone or
+  Homepage config problem, so it can't be fixed by adjusting flags; Hetzner's
+  own API is the only route that actually returns the numbers. The `--rc`
+  flags have been removed from `rclone-mount`'s command entirely — there's
+  no reason to run an authenticated internal HTTP API that nothing uses.
+
+  This shows remote capacity only. Local VPS disk usage for the `--vfs-cache`
   directory is deliberately NOT shown: the cache can independently fill up
   and break writes even while the Storage Box has room, but putting both
   numbers on one dashboard reads as two contradictory "storage" figures.

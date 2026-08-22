@@ -123,30 +123,27 @@
         description: Torrents, VPN-isolated via gluetun
 
 - Storage:
-    # Queries rclone-mount's own --rc HTTP API over the internal Docker
-    # network (never published externally), authenticated with the
-    # RCLONE_RC_USER/RCLONE_RC_PASS credentials from .env. mdi- icon because
-    # dashboard-icons has no Hetzner Storage Box logo.
+    # Queries Hetzner's own Cloud API directly (not rclone) with a read-only
+    # API token. rclone's WebDAV backend was tried first (operations/about
+    # over rclone's --rc HTTP API) but Hetzner's WebDAV never returns quota
+    # properties (RFC 4331), so rclone always got back an empty {} — a
+    # structural limitation, not a config bug. Hetzner's account only has
+    # one Storage Box, so `storage_boxes.0` is safe; if a second box is ever
+    # added, this would need to target it by id instead of index 0.
+    # mdi- icon because dashboard-icons has no Hetzner Storage Box logo.
     - Hetzner Storage Box:
         icon: mdi-harddisk
         description: Remote media storage over WebDAV
         widget:
           type: customapi
-          url: http://arr-rclone:5572/operations/about
-          method: POST
-          username: "{{HOMEPAGE_VAR_RCLONE_RC_USER}}"
-          password: "{{HOMEPAGE_VAR_RCLONE_RC_PASS}}"
+          url: https://api.hetzner.com/v1/storage_boxes
+          method: GET
           headers:
-            Content-Type: application/json
-          requestBody:
-            fs: "hetzner_box:"
+            Authorization: "Bearer {{HOMEPAGE_VAR_HETZNER_API_TOKEN}}"
           mappings:
-            - field: used
+            - field: storage_boxes.0.stats.size
               label: Used
               format: bytes
-            - field: free
-              label: Free
-              format: bytes
-            - field: total
+            - field: storage_boxes.0.storage_box_type.size
               label: Total
               format: bytes
