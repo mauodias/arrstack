@@ -133,7 +133,10 @@
     # mdi- icon because dashboard-icons has no Hetzner Storage Box logo.
     - Hetzner Storage Box:
         icon: mdi-harddisk
-        description: Remote media storage over WebDAV
+        # Static, not a widget mapping: the account only has one box, and its
+        # user ID (u654700) doesn't change, so there's no reason to spend an
+        # API field on it — it belongs in the subtitle, not as tile data.
+        description: "User ID: u654700"
         widget:
           type: customapi
           url: https://api.hetzner.com/v1/storage_boxes
