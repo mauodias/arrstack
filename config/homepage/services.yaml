@@ -124,6 +124,39 @@
         href: http://172.28.0.10:8080
         icon: qbittorrent.png
         description: Torrents, VPN-isolated via gluetun
+        widget:
+          type: qbittorrent
+          url: http://172.28.0.10:8080
+          username: "{{HOMEPAGE_VAR_QBT_USERNAME}}"
+          password: "{{HOMEPAGE_VAR_QBT_PASSWORD}}"
+          enableLeechProgress: true
+
+    # The stock qbittorrent widget above exposes only leech/download/seed/
+    # upload. This pulls qBittorrent's own aggregate state for the numbers it
+    # cannot reach — notably connection_status, which reports `firewalled`
+    # when the listen port is not actually reachable, and total_queued_size,
+    # which shows work waiting on a free slot from the queueing limits.
+    - Torrent activity:
+        icon: mdi-swap-vertical-bold
+        description: qBittorrent aggregate state
+        widget:
+          type: customapi
+          url: http://172.28.0.10:8080/api/v2/sync/maindata?rid=0
+          username: "{{HOMEPAGE_VAR_QBT_USERNAME}}"
+          password: "{{HOMEPAGE_VAR_QBT_PASSWORD}}"
+          mappings:
+            - field: server_state.connection_status
+              label: Status
+              format: text
+            - field: server_state.global_ratio
+              label: Ratio
+              format: text
+            - field: server_state.total_queued_size
+              label: Queued
+              format: bytes
+            - field: server_state.alltime_ul
+              label: Shared
+              format: bytes
 
 - Storage:
     # Queries Hetzner's own Cloud API directly, with a read-only API token.

@@ -274,6 +274,25 @@ Choose *Pause* rather than one of the "remove" actions: if an import fails,
 the data is still there to retry, and the *arr apps do the deletion
 themselves once an import succeeds.
 
+## After a host reboot
+
+Expect several containers to be down. `depends_on` only orders containers
+during `docker compose up`; when the Docker daemon starts at boot it honours
+restart policies in arbitrary order, so anything that needs the rclone mount
+can start before it exists, fail, and stay down. Everything sharing
+Tailscale's namespace is affected — Sonarr, Radarr, Lidarr, Seerr, soularr
+and Homepage have all been observed exiting with code 255 this way, while
+Jellyfin, Navidrome, Prowlarr and Bazarr came up fine.
+
+Fix: start the stopped containers once `rclone-mount` reports healthy —
+Arcane's **start-stopped** action, or `docker compose up -d`. No redeploy is
+needed; nothing is broken, it is purely a startup-ordering race.
+
+Note that qBittorrent restarts automatically too, and resumes its torrents.
+If you rebooted *because* the host was saturated, stop it immediately on
+boot (`docker stop arr-qbittorrent`) before it re-saturates the uplink —
+torrents take roughly a minute to reconnect to peers, which is the window.
+
 ## Running the tests
 
 ```bash

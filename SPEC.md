@@ -251,6 +251,14 @@ AIRVPN_FORWARDED_PORT=
 # area; 50300 matches slskd's own default listen port.
 AIRVPN_SLSKD_FORWARDED_PORT=
 
+# --- qBittorrent WebUI ---
+# Used by Homepage's qBittorrent widgets. The default password is generated
+# on first start and printed to the container log
+# (`docker logs arr-qbittorrent | grep -i password`); change it in the WebUI
+# and record the new value here.
+QBT_USERNAME=
+QBT_PASSWORD=
+
 # --- Soulseek (slskd) ---
 # Web UI login (slskd dashboard access)
 SLSKD_USERNAME=
@@ -725,6 +733,8 @@ services:
       - HOMEPAGE_VAR_SONARR_KEY=${HOMEPAGE_VAR_SONARR_KEY}
       - HOMEPAGE_VAR_BAZARR_KEY=${HOMEPAGE_VAR_BAZARR_KEY}
       - HOMEPAGE_VAR_HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
+      - HOMEPAGE_VAR_QBT_USERNAME=${QBT_USERNAME}
+      - HOMEPAGE_VAR_QBT_PASSWORD=${QBT_PASSWORD}
       - HOMEPAGE_VAR_HETZNER_STORAGEBOX_USER=${HETZNER_STORAGEBOX_USER}
       - HOMEPAGE_VAR_SEERR_KEY=${HOMEPAGE_VAR_SEERR_KEY}
       - HOMEPAGE_VAR_LIDARR_KEY=${HOMEPAGE_VAR_LIDARR_KEY}
