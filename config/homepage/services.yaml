@@ -85,13 +85,16 @@
           url: http://arr-vps:8686
           key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
 
+    # Reached at gluetun's fixed vpn_net address rather than arr-vps: slskd
+    # shares gluetun's network namespace for VPN isolation, so it is not
+    # bound to the Tailscale hostname.
     - slskd:
-        href: http://arr-vps:5030
+        href: http://172.28.0.10:5030
         icon: slskd.png
-        description: Soulseek P2P
+        description: Soulseek P2P, VPN-isolated via gluetun
         widget:
           type: slskd
-          url: http://arr-vps:5030
+          url: http://172.28.0.10:5030
           key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
 
     # soularr: plain link, no widget — it exposes no stats API. The tile is

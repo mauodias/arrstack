@@ -142,7 +142,14 @@ the same Settings page you're already on.
    Radarr/Sonarr/Lidarr, since their download-client setup (step 4) points
    at it. No API key needed for its Homepage tile (widget uses your
    qBittorrent login instead).
-3. **slskd** (`:5030`) — *requires: step 1.* Nothing to configure in the
+3. **slskd** (`172.28.0.10:5030`) — *requires: step 1.* Reached at gluetun's
+   address rather than `arr-vps`, because slskd runs inside gluetun's network
+   namespace so its Soulseek traffic is VPN-isolated and can accept inbound
+   connections on an AirVPN-forwarded port. That needs a *second* forwarded
+   port beyond qBittorrent's (`AIRVPN_SLSKD_FORWARDED_PORT`), allocated in
+   AirVPN's client area; `SLSKD_SLSK_LISTEN_PORT` follows it automatically.
+   Without an inbound port slskd can neither receive transfers nor serve
+   uploads, however much it shares. Nothing to configure in the
    Web UI: `SLSKD_REMOTE_CONFIGURATION=false`, so slskd's settings are
    declared entirely in `docker-compose.yml` (download/share paths, upload
    limits) and `.env` (credentials). This is deliberate — slskd's precedence

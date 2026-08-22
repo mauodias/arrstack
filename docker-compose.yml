@@ -100,10 +100,14 @@ services:
       - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
       - SERVER_COUNTRIES=${SERVER_COUNTRIES}
-      - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT}
+      # Inbound through the VPN tunnel: qBittorrent's BitTorrent port and
+      # slskd's Soulseek listen port. Each needs its own AirVPN-forwarded
+      # port; a single forwarded port cannot serve both.
+      - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT},${AIRVPN_SLSKD_FORWARDED_PORT}
       - FIREWALL_OUTBOUND_SUBNETS=100.64.0.0/10
-      # Allow inbound traffic to qBittorrent WebUI via Tailscale subnet route
-      - FIREWALL_INPUT_PORTS=8080
+      # Allow inbound traffic to the qBittorrent and slskd WebUIs via the
+      # Tailscale subnet route.
+      - FIREWALL_INPUT_PORTS=8080,5030
     restart: unless-stopped
 
   qbittorrent:
@@ -252,9 +256,18 @@ services:
   slskd:
     image: slskd/slskd:latest
     container_name: arr-slskd
-    network_mode: "service:tailscale"
+    # Soulseek uploads copyrighted music from this host, so the traffic gets
+    # the same VPN isolation as BitTorrent. It also solves connectivity:
+    # inside Tailscale's namespace nothing can publish an inbound port, so
+    # slskd advertised an unreachable address and no peer could ever connect
+    # to it — no incoming transfers, and uploads impossible regardless of how
+    # much was shared. AirVPN's forwarded port restores that inbound path.
+    network_mode: "service:gluetun"
     environment:
       - TZ=${TZ}
+      # Must equal the AirVPN-forwarded port, since AirVPN maps the external
+      # port to the same port number inside the tunnel.
+      - SLSKD_SLSK_LISTEN_PORT=${AIRVPN_SLSKD_FORWARDED_PORT}
       # Web UI login (slskd dashboard)
       - SLSKD_USERNAME=${SLSKD_USERNAME}
       - SLSKD_PASSWORD=${SLSKD_PASSWORD}
@@ -310,7 +323,7 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      tailscale:
+      gluetun:
         condition: service_started
     restart: unless-stopped
 

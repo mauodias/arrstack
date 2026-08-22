@@ -6,7 +6,10 @@ disable_sync = False
 
 [Slskd]
 api_key = __SLSKD_API_KEY__
-host_url = http://127.0.0.1:5030
+# slskd runs in gluetun's network namespace, not Tailscale's, so it is not
+# reachable on loopback from here. 172.28.0.10 is gluetun's fixed address on
+# the vpn_net bridge; gluetun's FIREWALL_INPUT_PORTS must permit 5030.
+host_url = http://172.28.0.10:5030
 url_base = /
 download_dir = /downloads
 delete_searches = False

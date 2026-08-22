@@ -25,7 +25,7 @@ This specification defines the deployment of an automated media acquisition and 
                                           |
    Acquisition/management apps (share this netns, talk to each other over 127.0.0.1):
      Radarr (7878)  Sonarr (8989)  Bazarr (6767)  Prowlarr (9696)  Seerr (5055)
-     Lidarr (8686)  slskd (5030)   soularr (n/a)   Homepage (3000)
+     Lidarr (8686)  soularr (n/a)  Homepage (3000)
                                           |
    Consumption apps (same netns, read media straight off the mount):
      Navidrome (4533)   Jellyfin (8096)
@@ -49,8 +49,8 @@ This specification defines the deployment of an automated media acquisition and 
   Notes:
   * Homepage (dashboard) aggregates *arr/qBittorrent/Jellyfin stats via their APIs,
     plus Hetzner's own Cloud API for Storage Box used/total (Section 10).
-  * soularr has no exposed port; it bridges Lidarr and slskd (both on this same
-    netns) over 127.0.0.1 on a schedule.
+  * soularr has no exposed port; it reaches Lidarr over 127.0.0.1 (same netns)
+    and slskd at 172.28.0.10:5030 (gluetun's namespace) on a schedule.
 
  [ TORRENT EGRESS ISOLATION NETWORK ]
            |
@@ -59,11 +59,11 @@ This specification defines the deployment of an automated media acquisition and 
  |  (Sidecar)        |                     (WireGuard)                        (Static Port Open)
  +---------+---------+
            | (network_mode: "service:gluetun", static IP 172.28.0.10
-           |  on the `vpn_net` bridge, FIREWALL_INPUT_PORTS=8080)
- +---------v---------+
- |    qBittorrent    |
- |  (Port 8080/tcp)  |
- +-------------------+
+           |  on the `vpn_net` bridge, FIREWALL_INPUT_PORTS=8080,5030)
+ +---------v---------+      +-------------------+
+ |    qBittorrent    |      |       slskd       |
+ |  (Port 8080/tcp)  |      |  (WebUI 5030/tcp) |
+ +-------------------+      +-------------------+
 ```
 
 **qBittorrent reachability (Tailscale subnet route, not netns sharing):**
@@ -83,12 +83,32 @@ directly at `172.28.0.10:8080` — including from sibling containers that
 share the Tailscale netns (Radarr/Sonarr/Lidarr), since they inherit
 tailscale's network interfaces, `vpn_net` included.
 
-Seerr, Lidarr, slskd, Navidrome, and Jellyfin all sit on the Tailscale
-sidecar's network like the existing apps (Section 1.1: zero public
-exposure). Soulseek (used by slskd) is a P2P network without the
-public-peer-list/swarm exposure model of BitTorrent, so slskd does not
-route through Gluetun — it shares the same trust model as the other
-Tailscale-only application containers, not qBittorrent's.
+Seerr, Lidarr, Navidrome, and Jellyfin all sit on the Tailscale sidecar's
+network like the existing apps (Section 1.1: zero public exposure).
+
+**slskd is the exception: it shares gluetun's namespace, like qBittorrent.**
+Soulseek lacks BitTorrent's public-peer-list/swarm model, which is why slskd
+originally sat on the Tailscale network — but that reasoning covers
+discovery, not the fact that slskd *uploads* copyrighted music. On the
+Tailscale network it egressed from the VPS's own address, making that
+activity directly attributable to the German host this stack exists to keep
+out of it (Section 1).
+
+Placement also decides connectivity. Nothing publishes an inbound port into
+the Tailscale namespace, so slskd advertised an address no peer could reach:
+inbound transfers were impossible and uploads could never be served no
+matter how much was shared. Routing through gluetun uses an
+AirVPN-forwarded port for the Soulseek listener, which restores inbound
+connectivity and hides the host address at the same time. This requires a
+*second* forwarded port (`AIRVPN_SLSKD_FORWARDED_PORT`) — one port cannot
+serve both qBittorrent and slskd — and `SLSKD_SLSK_LISTEN_PORT` must equal
+it, since AirVPN maps the external port to the same number inside the
+tunnel.
+
+The consequence is that slskd is no longer reachable at `arr-vps:5030`, and
+no longer reachable on loopback from soularr. Both now use gluetun's fixed
+`172.28.0.10:5030` over the Tailscale subnet route, which is why gluetun's
+`FIREWALL_INPUT_PORTS` lists `5030` alongside qBittorrent's `8080`.
 
 Bazarr connects to Radarr and Sonarr over `127.0.0.1` (same netns, same
 pattern as Prowlarr's app sync) to pull subtitles for content those two
@@ -226,12 +246,20 @@ WIREGUARD_PRESHARED_KEY=
 WIREGUARD_ADDRESSES=
 SERVER_COUNTRIES=Netherlands,Switzerland
 AIRVPN_FORWARDED_PORT=
+# A second AirVPN-forwarded port, for slskd's Soulseek listener. One forwarded
+# port cannot serve both qBittorrent and slskd. Allocate it in AirVPN's client
+# area; 50300 matches slskd's own default listen port.
+AIRVPN_SLSKD_FORWARDED_PORT=
 
 # --- Soulseek (slskd) ---
 # Web UI login (slskd dashboard access)
 SLSKD_USERNAME=
 SLSKD_PASSWORD=
 SLSKD_API_KEY=
+# Signs slskd's browser sessions. Without it slskd generates a random key on
+# every start, logging you out on each redeploy. Minimum 16 characters.
+# Generate with: openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-48
+SLSKD_JWT_KEY=
 # Soulseek network login (P2P network connection)
 SLSKD_SLSK_USERNAME=
 SLSKD_SLSK_PASSWORD=
@@ -308,8 +336,7 @@ services:
       - /mnt/remote-media:/mnt/remote-media
     # NOTE: bootstrap/init.sh is fetched from GitHub at container start rather
     # than being embedded here, so this file and the script never drift out
-    # of sync (see commit history: this replaced an earlier approach that
-    # inlined the script's full contents into `command:`).
+    # of sync.
     #
     # Operational tradeoff: this makes bootstrap depend on the repo being
     # pushed to GitHub's `main` branch. A local edit to bootstrap/init.sh will
@@ -393,10 +420,14 @@ services:
       - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
       - SERVER_COUNTRIES=${SERVER_COUNTRIES}
-      - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT}
+      # Inbound through the VPN tunnel: qBittorrent's BitTorrent port and
+      # slskd's Soulseek listen port. Each needs its own AirVPN-forwarded
+      # port; a single forwarded port cannot serve both.
+      - FIREWALL_VPN_INPUT_PORTS=${AIRVPN_FORWARDED_PORT},${AIRVPN_SLSKD_FORWARDED_PORT}
       - FIREWALL_OUTBOUND_SUBNETS=100.64.0.0/10
-      # Allow inbound traffic to qBittorrent WebUI via Tailscale subnet route
-      - FIREWALL_INPUT_PORTS=8080
+      # Allow inbound traffic to the qBittorrent and slskd WebUIs via the
+      # Tailscale subnet route.
+      - FIREWALL_INPUT_PORTS=8080,5030
     restart: unless-stopped
 
   qbittorrent:
@@ -545,13 +576,27 @@ services:
   slskd:
     image: slskd/slskd:latest
     container_name: arr-slskd
-    network_mode: "service:tailscale"
+    # Soulseek uploads copyrighted music from this host, so the traffic gets
+    # the same VPN isolation as BitTorrent. It also solves connectivity:
+    # inside Tailscale's namespace nothing can publish an inbound port, so
+    # slskd advertised an unreachable address and no peer could ever connect
+    # to it — no incoming transfers, and uploads impossible regardless of how
+    # much was shared. AirVPN's forwarded port restores that inbound path.
+    network_mode: "service:gluetun"
     environment:
       - TZ=${TZ}
+      # Must equal the AirVPN-forwarded port, since AirVPN maps the external
+      # port to the same port number inside the tunnel.
+      - SLSKD_SLSK_LISTEN_PORT=${AIRVPN_SLSKD_FORWARDED_PORT}
       # Web UI login (slskd dashboard)
       - SLSKD_USERNAME=${SLSKD_USERNAME}
       - SLSKD_PASSWORD=${SLSKD_PASSWORD}
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      # slskd generates a random JWT signing key at every start unless one is
+      # supplied, which invalidates every browser session on restart. The UI
+      # still renders while holding a stale token, but every API call it makes
+      # returns 401, so views appear empty rather than logged out.
+      - SLSKD_JWT_KEY=${SLSKD_JWT_KEY}
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
@@ -584,6 +629,11 @@ services:
       # The share index defaults to RAM; keep it on disk since the library is
       # large and sits behind a FUSE mount.
       - SLSKD_SHARE_CACHE_STORAGE_MODE=Disk
+      # Minutes. Without this slskd scans shares only at startup, so a library
+      # that grows after boot is never re-indexed and stays unshared. The FUSE
+      # mount generates no inotify events, so a timed rescan is the only way
+      # new albums become visible to the network.
+      - SLSKD_SHARE_CACHE_RETENTION=60
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave
@@ -593,7 +643,7 @@ services:
     depends_on:
       rclone-mount:
         condition: service_healthy
-      tailscale:
+      gluetun:
         condition: service_started
     restart: unless-stopped
 
@@ -753,7 +803,9 @@ networks:
    * Seerr to Radarr/Sonarr: `http://127.0.0.1:7878` / `http://127.0.0.1:8989`
      (all share the Tailscale sidecar's network namespace, so app-to-app
      calls use `127.0.0.1` with the target app's port, not container names)
-   * Soularr to Lidarr: `http://127.0.0.1:8686`; to slskd: `http://127.0.0.1:5030`
+   * Soularr to Lidarr: `http://127.0.0.1:8686`; to slskd:
+     `http://172.28.0.10:5030` (slskd is in gluetun's namespace, not on
+     loopback with the other apps)
    * **Music acquisition flow.** slskd is a download client only — it never
      moves files into the library, exactly like qBittorrent. Lidarr has no
      native slskd support, so soularr bridges them: it reads Lidarr's wanted
