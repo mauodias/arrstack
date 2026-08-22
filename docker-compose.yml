@@ -259,6 +259,11 @@ services:
       - SLSKD_USERNAME=${SLSKD_USERNAME}
       - SLSKD_PASSWORD=${SLSKD_PASSWORD}
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      # slskd generates a random JWT signing key at every start unless one is
+      # supplied, which invalidates every browser session on restart. The UI
+      # still renders while holding a stale token, but every API call it makes
+      # returns 401, so views appear empty rather than logged out.
+      - SLSKD_JWT_KEY=${SLSKD_JWT_KEY}
       # Soulseek network login (P2P network connection)
       - SLSKD_SLSK_USERNAME=${SLSKD_SLSK_USERNAME}
       - SLSKD_SLSK_PASSWORD=${SLSKD_SLSK_PASSWORD}
@@ -291,6 +296,11 @@ services:
       # The share index defaults to RAM; keep it on disk since the library is
       # large and sits behind a FUSE mount.
       - SLSKD_SHARE_CACHE_STORAGE_MODE=Disk
+      # Minutes. Without this slskd scans shares only at startup, so a library
+      # that grows after boot is never re-indexed and stays unshared. The FUSE
+      # mount generates no inotify events, so a timed rescan is the only way
+      # new albums become visible to the network.
+      - SLSKD_SHARE_CACHE_RETENTION=60
     volumes:
       - ./config/slskd:/app
       - /mnt/remote-media/downloads:/downloads:rslave

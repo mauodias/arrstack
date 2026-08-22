@@ -2,6 +2,7 @@
 api_key = __LIDARR_API_KEY__
 host_url = http://127.0.0.1:8686
 download_dir = /downloads
+disable_sync = False
 
 [Slskd]
 api_key = __SLSKD_API_KEY__
@@ -9,3 +10,54 @@ host_url = http://127.0.0.1:5030
 url_base = /
 download_dir = /downloads
 delete_searches = False
+stalled_timeout = 3600
+remote_queue_timeout = 300
+
+[Release Settings]
+use_selected_lidarr_release = False
+use_most_common_tracknum = True
+allow_multi_disc = True
+accepted_countries = Europe,Japan,United Kingdom,United States,[Worldwide],Australia,Canada
+skip_region_check = False
+accepted_formats = CD,Digital Media,Vinyl
+
+[Search Settings]
+search_timeout = 5000
+maximum_peer_queue = 50
+minimum_peer_upload_speed = 0
+minimum_filename_match_ratio = 0.8
+minimum_search_interval = 5
+# Mirrors Lidarr's Lossless and High Quality profiles: lossless first, then
+# MP3 320. Order is preference, best first. Bare `mp3` is deliberately absent
+# so lower bitrates are never accepted.
+allowed_filetypes = flac 24/192,flac 16/44.1,flac,mp3 320
+ignored_users =
+# Searches the artist name alongside the album title. Album titles alone are
+# frequently generic words ("Awake", "Virus", "Fauna") that return thousands
+# of unrelated files and exhaust the response limit before the real album
+# appears.
+album_prepend_artist = True
+# Rotates through every page of Lidarr's missing list. `first_page` only ever
+# processes the alphabetically-first page_size albums, so the rest of the
+# library is never searched.
+search_type = incrementing_page
+number_of_albums_to_grab = 20
+title_blacklist =
+search_blacklist =
+search_source = missing
+failed_import_denylist = True
+
+[Download Settings]
+download_filtering = True
+use_extension_whitelist = False
+extensions_whitelist = lrc,nfo,txt
+rename_download_folders = True
+
+[Logging]
+level = INFO
+format = [%(levelname)s|%(module)s|L%(lineno)d] %(asctime)s: %(message)s
+datefmt = %Y-%m-%dT%H:%M:%S%z
+log_to_file = True
+log_file = soularr.log
+max_bytes = 1048576
+backup_count = 3
