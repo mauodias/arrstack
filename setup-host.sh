@@ -11,6 +11,10 @@ modprobe fuse
 modprobe tun
 
 echo "Making /mnt a shared mount point..."
+# --make-rshared only accepts a mount point. On hosts where /mnt is an
+# ordinary directory on the root filesystem it must be bound to itself
+# first, otherwise this fails with "not mount point or bad option".
+mountpoint -q /mnt || mount --bind /mnt /mnt
 mount --make-rshared /mnt
 
 echo "Making /mnt/remote-media its own shared bind mount..."
@@ -30,7 +34,7 @@ Before=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'mount --make-rshared /mnt; mkdir -p /mnt/remote-media; mountpoint -q /mnt/remote-media || mount --bind /mnt/remote-media /mnt/remote-media; mount --make-shared /mnt/remote-media'
+ExecStart=/bin/bash -c 'mountpoint -q /mnt || mount --bind /mnt /mnt; mount --make-rshared /mnt; mkdir -p /mnt/remote-media; mountpoint -q /mnt/remote-media || mount --bind /mnt/remote-media /mnt/remote-media; mount --make-shared /mnt/remote-media'
 RemainAfterExit=yes
 
 [Install]
