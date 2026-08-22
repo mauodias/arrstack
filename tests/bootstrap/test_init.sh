@@ -18,10 +18,8 @@ fail() {
 REAL_UID="$(id -u)"
 REAL_GID="$(id -g)"
 
-# We can't hit the actual internet from a unit test (and, before this branch
-# is merged to main, the real GitHub URLs for services.yaml/config.ini.template
-# wouldn't reflect this branch's changes anyway). Instead, put a fake `wget`
-# shim on PATH ahead of the real one that records how it was invoked and
+# We can't hit the actual internet from a unit test. Instead, put a fake
+# `wget` shim on PATH ahead of the real one that records how it was invoked and
 # copies a local fixture into place, exercising init.sh's real logic (URL
 # used, destination path, ordering relative to `mkdir -p`) without any
 # network access. Every test below runs with this shim on PATH and with
@@ -36,8 +34,9 @@ printf -- '[Lidarr]\napi_key = __LIDARR_API_KEY__\nhost_url = http://127.0.0.1:8
 FAKE_SOULARR_URL="https://example.test/config.ini.template"
 
 # Fake wget for testing: init.sh always calls us as "-qO <dest> <url>".
-# Dispatch by URL so both fetches (services.yaml, soularr's
-# config.ini.template) are served by this one shim, and log each call.
+# Dispatch by URL so every fetch (the three Homepage config files and
+# soularr's config.ini.template) is served by this one shim, and log each
+# call.
 cat > "$FAKE_BIN_DIR/wget" <<EOF
 #!/bin/sh
 echo "\$@" >> "$FIXTURE_DIR/wget.calls"

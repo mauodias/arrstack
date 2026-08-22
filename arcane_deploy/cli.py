@@ -61,12 +61,11 @@ def run(repo_root: Path, environ: dict[str, str]) -> int:
         print(f"Updating project {project_name!r}...")
         project = client.update_project(environment_id, existing["id"], payload)
         project_id = project["id"]
-        # Explicit down + up (not the single "redeploy" action) so every
-        # container is guaranteed to be recreated fresh on every deploy —
-        # a container left running across an update keeps its bind mounts
-        # frozen at whatever the host mount state was when it was created,
-        # which silently breaks propagation-dependent mounts after a host
-        # config change (see SPEC.md Section 3.1).
+        # Every container must be recreated fresh on every deploy: one left
+        # running across an update keeps its bind mounts frozen at whatever
+        # the host mount state was when it was created, which silently
+        # breaks propagation-dependent mounts after a host config change
+        # (see SPEC.md Section 3.1).
         print("Bringing down existing containers...")
         client.down_project(environment_id, project_id)
         print("Deploying...")

@@ -16,8 +16,7 @@ services:
       - /mnt/remote-media:/mnt/remote-media
     # NOTE: bootstrap/init.sh is fetched from GitHub at container start rather
     # than being embedded here, so this file and the script never drift out
-    # of sync (see commit history: this replaced an earlier approach that
-    # inlined the script's full contents into `command:`).
+    # of sync.
     #
     # Operational tradeoff: this makes bootstrap depend on the repo being
     # pushed to GitHub's `main` branch. A local edit to bootstrap/init.sh will

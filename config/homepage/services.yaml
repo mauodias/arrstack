@@ -123,23 +123,21 @@
         description: Torrents, VPN-isolated via gluetun
 
 - Storage:
-    # Queries Hetzner's own Cloud API directly (not rclone) with a read-only
-    # API token. rclone's WebDAV backend was tried first (operations/about
-    # over rclone's --rc HTTP API) but Hetzner's WebDAV never returns quota
-    # properties (RFC 4331), so rclone always got back an empty {} — a
-    # structural limitation, not a config bug. Hetzner's account only has
-    # one Storage Box, so `storage_boxes.0` is safe; if a second box is ever
-    # added, this would need to target it by id instead of index 0.
-    # mdi- icon because dashboard-icons has no Hetzner Storage Box logo.
+    # Queries Hetzner's own Cloud API directly, with a read-only API token.
+    # rclone can't provide this data: Hetzner's WebDAV endpoint never returns
+    # quota properties (RFC 4331), so `rclone about` always returns an empty
+    # object for this account. Hetzner's account only has one Storage Box,
+    # so `storage_boxes.0` is safe; a second box would need targeting by id
+    # instead of index 0. mdi- icon because dashboard-icons has no Hetzner
+    # Storage Box logo.
     - Hetzner Storage Box:
         href: https://console.hetzner.com/projects
         icon: mdi-harddisk
         # Sourced from HETZNER_STORAGEBOX_USER via HOMEPAGE_VAR templating
-        # (docker-compose.yml), not hardcoded — same {{HOMEPAGE_VAR_*}}
-        # mechanism used for widget API keys, works in any field of this
-        # file, not just inside widget: blocks. Kept out of the widget's
-        # own `mappings` deliberately: it's a subtitle, not tile data, and
-        # it doesn't need a live API call since it's static per-account.
+        # (docker-compose.yml) — the same mechanism used for widget API keys
+        # works in any field of this file, not just inside widget: blocks.
+        # Kept out of the widget's own `mappings`: it's a subtitle, not tile
+        # data, and doesn't need a live API call since it's static per-account.
         description: "User ID: {{HOMEPAGE_VAR_HETZNER_STORAGEBOX_USER}}"
         widget:
           type: customapi
