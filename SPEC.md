@@ -328,6 +328,28 @@ Save as `docker-compose.yml` at the project root:
 ```yaml
 version: "3.8"
 
+# Verifies at runtime that a container is looking at the Hetzner Storage Box
+# and not the bare local disk underneath the mount point. rclone-mount writes
+# .hetzner-mounted into each media directory on the remote itself, so the
+# marker is present only when the FUSE mount has genuinely propagated into
+# this container.
+#
+# Without this, a propagation failure is silent: writes succeed, applications
+# report success, and the data sits on local disk invisible to everything else
+# until the mount returns and shadows it. Each service opts in by setting
+# MOUNT_CHECK_DIRS and referencing this anchor.
+x-mount-check: &mount-check
+  test: >-
+    C=/tmp/.mc; m=""; for d in $$MOUNT_CHECK_DIRS; do [ -f "$$d/.hetzner-mounted" ] || m="$$m $$d"; done;
+    if [ -z "$$m" ]; then rm -f $$C; exit 0; fi;
+    n=$$(( $$(cat $$C 2>/dev/null || echo 0) + 1 )); echo $$n > $$C;
+    printf '\n=== REMOTE STORAGE NOT MOUNTED ===\nMissing marker in:%s\nThis is LOCAL DISK, not the Hetzner Storage Box. Anything written here is\ninvisible to other containers, fills the VPS disk, and is shadowed when the\nmount returns.\nFix: sudo bash setup-host.sh on the host, then redeploy.\nSee README, "After a host reboot".\nFailure %s of 3 - this container stops at 3.\n\n' "$$m" "$$n" > /proc/1/fd/1 2>/dev/null;
+    [ $$n -ge 3 ] && kill 1; exit 1
+  interval: 60s
+  timeout: 15s
+  retries: 3
+  start_period: 180s
+
 services:
   bootstrap:
     image: alpine:latest
@@ -376,7 +398,7 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1000h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; for d in movies tv music downloads; do rclone touch hetzner_box:$d/.hetzner-mounted; done; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
@@ -443,6 +465,7 @@ services:
     container_name: arr-qbittorrent
     network_mode: "service:gluetun"
     environment:
+      - MOUNT_CHECK_DIRS=/downloads
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -455,6 +478,7 @@ services:
         condition: service_started
       rclone-mount:
         condition: service_healthy
+    healthcheck: *mount-check
     restart: unless-stopped
 
   prowlarr:
@@ -489,6 +513,7 @@ services:
     container_name: arr-radarr
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/movies /downloads
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -501,6 +526,7 @@ services:
         condition: service_healthy
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   sonarr:
@@ -508,6 +534,7 @@ services:
     container_name: arr-sonarr
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/tv /downloads
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -520,6 +547,7 @@ services:
         condition: service_healthy
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   bazarr:
@@ -527,6 +555,7 @@ services:
     container_name: arr-bazarr
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/movies /tv
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -543,6 +572,7 @@ services:
         condition: service_started
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   seerr:
@@ -567,6 +597,7 @@ services:
     container_name: arr-lidarr
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/music /downloads
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -579,6 +610,7 @@ services:
         condition: service_healthy
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   slskd:
@@ -592,6 +624,7 @@ services:
     # much was shared. AirVPN's forwarded port restores that inbound path.
     network_mode: "service:gluetun"
     environment:
+      - MOUNT_CHECK_DIRS=/downloads /music
       - TZ=${TZ}
       # Must equal the AirVPN-forwarded port, since AirVPN maps the external
       # port to the same port number inside the tunnel.
@@ -653,6 +686,7 @@ services:
         condition: service_healthy
       gluetun:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   soularr:
@@ -660,6 +694,7 @@ services:
     container_name: arr-soularr
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/downloads
       - TZ=${TZ}
       - SCRIPT_INTERVAL=300
     volumes:
@@ -672,6 +707,7 @@ services:
         condition: service_started
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   navidrome:
@@ -679,6 +715,7 @@ services:
     container_name: arr-navidrome
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/music
       - ND_LOGLEVEL=info
       - TZ=${TZ}
       # Last.fm as a metadata agent (artist bios, similar artists/songs,
@@ -696,6 +733,7 @@ services:
         condition: service_healthy
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   jellyfin:
@@ -703,6 +741,7 @@ services:
     container_name: arr-jellyfin
     network_mode: "service:tailscale"
     environment:
+      - MOUNT_CHECK_DIRS=/movies /tv /music
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -717,6 +756,7 @@ services:
         condition: service_healthy
       tailscale:
         condition: service_started
+    healthcheck: *mount-check
     restart: unless-stopped
 
   homepage:

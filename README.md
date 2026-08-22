@@ -284,6 +284,13 @@ Tailscale's namespace is affected — Sonarr, Radarr, Lidarr, Seerr, soularr
 and Homepage have all been observed exiting with code 255 this way, while
 Jellyfin, Navidrome, Prowlarr and Bazarr came up fine.
 
+Containers that use remote storage now detect this themselves: `rclone-mount`
+writes a `.hetzner-mounted` marker into each media directory *on the Storage
+Box*, and each consuming container's healthcheck looks for it. If the mount is
+not propagating, the marker is absent, the container prints an explicit
+explanation to its logs (`docker logs arr-sonarr`) and stops itself after
+three consecutive failures rather than writing to local disk unnoticed.
+
 Fix: start the stopped containers once `rclone-mount` reports healthy —
 Arcane's **start-stopped** action, or `docker compose up -d`. No redeploy is
 needed; nothing is broken, it is purely a startup-ordering race.
