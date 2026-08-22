@@ -837,6 +837,29 @@ networks:
    * Jellyfin/Navidrome read directly from `/mnt/remote-media/*`; no API
      linkage to Radarr/Sonarr/Lidarr is required for playback, only for
      Seerr's "available" status if configured
+   * **Imports copy; hardlinks are impossible on this storage.** The rclone
+     FUSE mount does not implement `link()`, so Radarr/Sonarr/Lidarr cannot
+     hardlink a completed download into the library — `copyUsingHardlinks`
+     is therefore set to `false` in all three, since attempting it only
+     produces a failed syscall before the same copy happens anyway. (The
+     per-app bind mounts would also defeat hardlinks independently: `/tv`,
+     `/movies`, `/music` and `/downloads` are separate mount points inside
+     each container, so `link()` across them returns `EXDEV` regardless of
+     backend support.)
+
+     The consequence is that every import exists twice until the download
+     is removed. Removal is *not* driven by the import: Radarr/Sonarr import
+     as soon as a download finishes, but `removeCompletedDownloads` only
+     fires once the download client reports the torrent **finished
+     seeding**. With no seed ratio or seed-time limit configured,
+     qBittorrent seeds indefinitely, the torrent never completes, and the
+     duplicate is retained forever — `/downloads` grows without bound.
+     A seeding limit in qBittorrent is what closes this loop; setting its
+     action to *pause* (rather than delete) leaves the data intact for retry
+     if an import fails, and lets the *arr apps perform the deletion.
+
+     All indexers currently configured are public trackers, so seeding
+     carries no ratio obligation and the limit can be set purely to taste.
 
 ---
 

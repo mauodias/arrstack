@@ -257,6 +257,23 @@ the same Settings page you're already on.
 After collecting the keys above, redeploy once more (`uv run deploy.py`) so
 Homepage picks them all up.
 
+### Seeding limits (required, or `/downloads` grows forever)
+
+In qBittorrent, set a seeding limit: **Tools → Options → BitTorrent →
+Seeding Limits** → "When ratio reaches" (1.0–1.5 is generous), action
+**Pause torrent**.
+
+This is not optional housekeeping. Hardlinks don't work on the rclone mount
+(see `SPEC.md` Section 7), so every import leaves a second full copy in
+`/downloads`. Radarr/Sonarr *do* clean it up — but only once qBittorrent
+reports the torrent finished seeding, which never happens without a limit.
+The result is that the download directory keeps every file it has ever
+fetched.
+
+Choose *Pause* rather than one of the "remove" actions: if an import fails,
+the data is still there to retry, and the *arr apps do the deletion
+themselves once an import succeeds.
+
 ## Running the tests
 
 ```bash
