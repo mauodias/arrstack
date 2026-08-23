@@ -586,6 +586,8 @@ services:
       retries: 3
       start_period: 20s
     depends_on:
+      rclone-mount:
+        condition: service_healthy
       tailscale:
         condition: service_started
     mem_limit: 64m
