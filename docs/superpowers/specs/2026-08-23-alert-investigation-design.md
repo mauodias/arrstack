@@ -279,11 +279,8 @@ vocabulary is what makes a skimmed review safe: the worst a bad playbook can do
 is check the wrong things and propose an action the operator must still
 approve.
 
-**Quota is shared with interactive use.** An investigation can consume budget
-the operator wanted. The ceilings and the refuse-to-start rule mitigate this;
-they do not eliminate it.
-
 **Quota is a shared, non-monetary budget.** The account is quota-based, so an
 investigation costs no money — it costs capacity the operator may want for
-their own work. That makes the ceilings a usability control rather than a
-financial one, and it is why running out is an acceptable design outcome.
+their own work. The ceilings and the refuse-to-start rule mitigate the
+competition but do not remove it. That makes them a usability control rather
+than a financial one, and it is why running out is an acceptable outcome.
