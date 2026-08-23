@@ -461,6 +461,19 @@ services:
       - RESEND_FROM=${RESEND_FROM}
       - RESEND_TO=${RESEND_TO}
       - DIGEST_HOUR=${DIGEST_HOUR:-8}
+      - LIDARR_URL=http://localhost:8686
+      - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - SONARR_URL=http://localhost:8989
+      - SONARR_API_KEY=${HOMEPAGE_VAR_SONARR_KEY}
+      - RADARR_URL=http://localhost:7878
+      - RADARR_API_KEY=${HOMEPAGE_VAR_RADARR_KEY}
+      - BAZARR_URL=http://localhost:6767
+      - BAZARR_API_KEY=${HOMEPAGE_VAR_BAZARR_KEY}
+      - QBT_URL=http://172.28.0.10:8080
+      - QBT_USERNAME=${QBT_USERNAME}
+      - QBT_PASSWORD=${QBT_PASSWORD}
+      - SLSKD_URL=http://172.28.0.10:5030
+      - SLSKD_API_KEY=${SLSKD_API_KEY}
     volumes:
       # Not :ro — the collector keeps this database in WAL mode, and even a
       # read-only SQLite connection has to map the -shm file, which needs a
