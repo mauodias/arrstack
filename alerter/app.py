@@ -139,6 +139,19 @@ CONFIG = {
     "resend_to": os.environ.get("RESEND_TO", ""),
     "digest_hour": int(os.environ.get("DIGEST_HOUR", "8")),
     "stale_after": int(os.environ.get("ALERTER_STALE_AFTER", "900")),
+    "lidarr_url": os.environ.get("LIDARR_URL", "http://localhost:8686").rstrip("/"),
+    "lidarr_api_key": os.environ.get("LIDARR_API_KEY", ""),
+    "sonarr_url": os.environ.get("SONARR_URL", "http://localhost:8989").rstrip("/"),
+    "sonarr_api_key": os.environ.get("SONARR_API_KEY", ""),
+    "radarr_url": os.environ.get("RADARR_URL", "http://localhost:7878").rstrip("/"),
+    "radarr_api_key": os.environ.get("RADARR_API_KEY", ""),
+    "bazarr_url": os.environ.get("BAZARR_URL", "http://localhost:6767").rstrip("/"),
+    "bazarr_api_key": os.environ.get("BAZARR_API_KEY", ""),
+    "seerr_url": os.environ.get("SEERR_URL", "http://localhost:5055").rstrip("/"),
+    "seerr_api_key": os.environ.get("SEERR_API_KEY", ""),
+    "qbt_url": os.environ.get("QBT_URL", "http://172.28.0.10:8080").rstrip("/"),
+    "qbt_username": os.environ.get("QBT_USERNAME", ""),
+    "qbt_password": os.environ.get("QBT_PASSWORD", ""),
 }
 
 STORE = None
@@ -152,15 +165,84 @@ def push(title, body, tags):
 
 
 def fetchers():
-    """Left empty until the arr history calls are added; gather() tolerates it
-    and the digest simply reports a quiet day."""
-    return {}
+    result = {}
+    window_start, now = _digest_window()
+    if CONFIG["lidarr_api_key"]:
+        result["music"] = lambda: digest.fetch_lidarr_arrivals(
+            CONFIG["lidarr_url"], CONFIG["lidarr_api_key"], window_start, now
+        )
+    if CONFIG["sonarr_api_key"]:
+        result["tv"] = lambda: digest.fetch_sonarr_arrivals(
+            CONFIG["sonarr_url"], CONFIG["sonarr_api_key"], window_start, now
+        )
+    if CONFIG["radarr_api_key"]:
+        result["movies"] = lambda: digest.fetch_radarr_arrivals(
+            CONFIG["radarr_url"], CONFIG["radarr_api_key"], window_start, now
+        )
+    if CONFIG["bazarr_api_key"]:
+        result["subtitles"] = lambda: digest.fetch_bazarr_arrivals(
+            CONFIG["bazarr_url"], CONFIG["bazarr_api_key"], window_start, now
+        )
+    return result
+
+
+def requests_fetcher():
+    if not CONFIG["seerr_api_key"]:
+        return {}
+    window_start, now = _digest_window()
+    return digest.fetch_requests(CONFIG["seerr_url"], CONFIG["seerr_api_key"], window_start, now)
+
+
+def contributed_fetcher():
+    if not CONFIG["qbt_username"]:
+        return None
+    return digest.fetch_mean_seed_ratio(
+        CONFIG["qbt_url"], CONFIG["qbt_username"], CONFIG["qbt_password"]
+    )
+
+
+def left_fetcher():
+    if not CONFIG["qbt_username"]:
+        return []
+    return digest.fetch_torrent_snapshot(
+        CONFIG["qbt_url"], CONFIG["qbt_username"], CONFIG["qbt_password"]
+    )
+
+
+_WINDOW = None
+
+
+def _digest_window():
+    """The (window_start, now) pair for the digest build currently in
+    progress. fetchers() closures need the same pair build_digest() computed,
+    rather than each recomputing time.time() independently."""
+    if _WINDOW is None:
+        now = int(time.time())
+        return now - digest.DAY, now
+    return _WINDOW
 
 
 def build_digest():
-    return digest.render(
-        digest.gather(CONFIG["metrics_db"], STORE, int(time.time()), fetchers())
-    )
+    """Renders the digest and returns (subject, body, data). Never mutates
+    STORE: /digest/preview can call this freely, and the send path commits
+    the window and torrent snapshot only after Resend confirms delivery."""
+    global _WINDOW
+    now = int(time.time())
+    window_start = STORE.last_digest_sent_at()
+    if window_start is None:
+        window_start = now - digest.DAY
+    _WINDOW = (window_start, now)
+    try:
+        data = digest.gather(
+            CONFIG["metrics_db"], STORE, window_start, now, fetchers(),
+            requests_fetcher=requests_fetcher,
+            contributed_fetcher=contributed_fetcher,
+            left_fetcher=left_fetcher,
+        )
+    finally:
+        _WINDOW = None
+    subject, body = digest.render(data)
+    return subject, body, data
 
 
 def check_staleness():
@@ -195,6 +277,24 @@ def loop():
         time.sleep(max(5.0, delay))
 
 
+def send_digest_once():
+    """Builds, sends and — only on confirmed delivery — commits the digest's
+    window and torrent snapshot. A failed send leaves both in place so the
+    next run covers what this one missed."""
+    subject, body, data = build_digest()
+    if not CONFIG["resend_key"]:
+        log("no RESEND_API_KEY set; digest not sent")
+        return False
+    if not send_email(CONFIG["resend_key"], CONFIG["resend_from"],
+                      CONFIG["resend_to"], subject, body):
+        log("digest email failed")
+        return False
+    STORE.mark_digest_sent(data["now"])
+    if data["_current_torrents"] is not None:
+        STORE.commit_torrent_snapshot(data["now"], data["_current_torrents"])
+    return True
+
+
 def digest_loop():
     sent_on = None
     while True:
@@ -203,13 +303,7 @@ def digest_loop():
         if now.tm_hour == CONFIG["digest_hour"] and sent_on != today:
             sent_on = today
             try:
-                subject, body = build_digest()
-                if CONFIG["resend_key"]:
-                    if not send_email(CONFIG["resend_key"], CONFIG["resend_from"],
-                                      CONFIG["resend_to"], subject, body):
-                        log("digest email failed")
-                else:
-                    log("no RESEND_API_KEY set; digest not sent")
+                send_digest_once()
             except Exception:
                 log("digest raised:\n" + traceback.format_exc())
         time.sleep(60)

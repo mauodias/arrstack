@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS transitions (
     body TEXT
 );
 CREATE INDEX IF NOT EXISTS transitions_ts ON transitions (ts);
+CREATE TABLE IF NOT EXISTS digest_meta (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS torrent_snapshot (
+    ts INTEGER NOT NULL,
+    hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    bytes REAL NOT NULL
+);
 """
 
 
@@ -116,3 +126,44 @@ class Store:
                 "SELECT * FROM transitions WHERE ts >= ? ORDER BY ts", (ts,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def last_digest_sent_at(self):
+        """The ts of the last successfully sent digest, or None before the first."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM digest_meta WHERE key = 'last_digest_sent_at'"
+            ).fetchone()
+        return None if row is None else int(row["value"])
+
+    def mark_digest_sent(self, ts):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO digest_meta (key, value) VALUES ('last_digest_sent_at', ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (ts,),
+            )
+
+    def previous_torrent_snapshot(self):
+        """Items from the last committed snapshot, or None before the first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT hash, name, bytes FROM torrent_snapshot"
+            ).fetchall()
+        if not rows:
+            return None
+        return [dict(r) for r in rows]
+
+    def commit_torrent_snapshot(self, ts, items):
+        """Replace the stored snapshot. Call only after the digest that used
+        the previous snapshot for its diff has actually been sent."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM torrent_snapshot")
+            conn.executemany(
+                "INSERT INTO torrent_snapshot (ts, hash, name, bytes) VALUES (?, ?, ?, ?)",
+                [
+                    (ts, item["hash"], item.get("name", "unknown"),
+                     float(item.get("bytes") or 0))
+                    for item in items
+                    if item.get("hash")
+                ],
+            )

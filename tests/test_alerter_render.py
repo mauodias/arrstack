@@ -1,5 +1,6 @@
 import sys
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -52,6 +53,51 @@ class TestRender(unittest.TestCase):
     def test_output_is_html(self):
         _, body = render(data(quiet=True))
         self.assertTrue(body.lstrip().startswith("<"))
+
+    def test_window_start_is_labelled_in_the_body(self):
+        d = data(quiet=True)
+        d["window_start"] = time.mktime(time.strptime("23 Aug 2026 08:00", "%d %b %Y %H:%M"))
+        _, body = render(d)
+        self.assertIn("since 23 Aug 08:00", body)
+
+    def test_requested_section_lists_by_requester(self):
+        d = data(quiet=True)
+        d["requests"] = {"marcia": ["Blue Eye Samurai (2023) — tv"]}
+        _, body = render(d)
+        self.assertIn("marcia", body)
+        self.assertIn("Blue Eye Samurai", body)
+
+    def test_left_section_lists_reclaimed_torrents(self):
+        d = data(quiet=True)
+        d["left"] = [{"name": "Old Movie", "bytes": 5e9}]
+        _, body = render(d)
+        self.assertIn("Old Movie", body)
+        self.assertIn("5.0 GB", body)
+
+    def test_contributed_section_always_renders(self):
+        d = data(quiet=True)
+        d["contributed"] = {"uploads_delta": 12, "ul_bytes_delta": 2e9, "mean_seed_ratio": 1.5}
+        _, body = render(d)
+        self.assertIn("Contributed", body)
+        self.assertIn("1.50", body)
+
+    def test_backlog_section_renders_when_present(self):
+        d = data(quiet=True)
+        d["backlog"] = {"wanted_missing": 4, "wanted_missing_delta": -2,
+                        "queue_count": 1, "success_rate": 92.0, "success_rate_delta": 3.0}
+        _, body = render(d)
+        self.assertIn("Backlog", body)
+        self.assertIn("92.0%", body)
+
+    def test_long_lists_are_capped_with_a_more_line(self):
+        items = ["Album %d" % i for i in range(40)]
+        _, body = render(data(quiet=False, arrived={"music": items}))
+        self.assertIn("… and 15 more", body)
+        self.assertNotIn("Album 39", body)
+
+    def test_html_is_escaped(self):
+        _, body = render(data(quiet=False, arrived={"music": ["<script>bad</script>"]}))
+        self.assertNotIn("<script>bad</script>", body)
 
 
 class TestSendEmail(unittest.TestCase):
