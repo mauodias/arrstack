@@ -33,7 +33,7 @@ minimum_search_interval = 5
 # Mirrors Lidarr's Lossless and High Quality profiles: lossless first, then
 # MP3 320. Order is preference, best first. Bare `mp3` is deliberately absent
 # so lower bitrates are never accepted.
-allowed_filetypes = flac 24/192,flac 16/44.1,flac,mp3 320
+allowed_filetypes = flac 16/44.1,flac,mp3 320
 ignored_users =
 # Searches the artist name alongside the album title. Album titles alone are
 # frequently generic words ("Awake", "Virus", "Fauna") that return thousands
