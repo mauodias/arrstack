@@ -6,11 +6,12 @@
  * this independent of Homepage's internal markup, which the iframe widget's
  * own generated class names are not.
  *
- * 38rem clears the metrics page at the width it gets as a single-column
- * group: its cards reflow at minmax(290px, 1fr), landing six charts in two
- * rows on a laptop-width dashboard. A much narrower browser window reflows
- * to fewer columns, more rows, and will still scroll internally.
+ * 70rem clears the metrics page at the width it gets as a single-column
+ * group: its cards reflow at minmax(290px, 1fr), landing the 8 stat tiles
+ * and 13 charts in around four rows on a laptop-width dashboard. A much
+ * narrower browser window reflows to fewer columns, more rows, and will
+ * still scroll internally.
  */
 iframe[src*=":8099"] {
-  height: 38rem !important;
+  height: 70rem !important;
 }
