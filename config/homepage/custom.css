@@ -1,18 +1,17 @@
 /* Homepage loads this automatically from its config directory.
  *
  * The iframe widget sizes itself with Tailwind height classes, and Homepage
- * ships a precompiled Tailwind bundle — arbitrary values such as h-[38rem]
+ * ships a precompiled Tailwind bundle — viewport units and arbitrary values
  * are not in that bundle and silently do nothing. Overriding by src keeps
  * this independent of Homepage's internal markup, which the iframe widget's
  * own generated class names are not.
  *
- * 150rem clears the metrics page at the width it gets as a single-column
- * group: its cards reflow at minmax(290px, 1fr) within five labelled
- * sections (Host, Storage, Torrents, Soulseek, Library), landing the 8
- * stat tiles and 17 charts in around eleven rows on a laptop-width
- * dashboard. A much narrower browser window reflows to fewer columns,
- * more rows, and will still scroll internally.
+ * Sized to the viewport rather than to content: 17 charts across five groups
+ * run past 2000px, which is taller than any screen. The frame stays within
+ * the window and the chart page scrolls inside it, with click-to-expand for
+ * reading any single chart full size.
  */
 iframe[src*=":8099"] {
-  height: 150rem !important;
+  height: calc(100vh - 11rem) !important;
+  min-height: 30rem !important;
 }
