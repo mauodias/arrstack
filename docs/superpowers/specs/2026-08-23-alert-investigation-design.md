@@ -64,9 +64,47 @@ nothing is exposed.
 opening `arr-vps:8100/digest/preview` and an `http` action firing `GET
 /healthz` worked from the notification, over Tailscale, with nothing exposed.
 
-Topic B is still built, for two reasons: it is how the operator replies when
-off the tailnet, and free-text answers to an agent's question cannot be
-expressed as buttons.
+### Per-incident channels
+
+**Verified on the operator's device (2026-08-24):** a `view` action carrying
+`ntfy://ntfy.sh/<topic>` subscribed the phone to a topic it had never seen,
+ntfy replayed that topic's cached history on subscribe, and messages sent from
+the app reached a listener within a second. Confirmed twice, across a listener
+restart.
+
+So the inbound channel is **minted per incident** rather than fixed. The alert
+carries a button handing over a fresh topic; the operator taps once and is
+talking on it.
+
+This is better than a single shared inbound topic in three ways:
+
+- **Correlation is structural.** The topic identifies the incident, so nothing
+  has to be parsed out of message text.
+- **A stale notification cannot reach a live incident.** Replying to
+  yesterday's alert publishes to yesterday's topic, which nothing is listening
+  to.
+- **The blast radius of a leaked topic name is one incident**, and only while
+  it is open.
+
+The topic name is unguessable and short-lived, but it is not a credential:
+mutating actions still require the single-use tokens described below.
+
+A long-lived fallback topic is retained for the case where no incident is open
+— free-text questions to the system, and replies from off the tailnet.
+
+### Inbound messages are untrusted
+
+During testing, the operator's ntfy client published a message nobody
+requested: an action button left configured in the app's publish dialog fired
+on send and posted `triggered` to the topic. It was harmless, and it took a
+controlled experiment to attribute — a listener restart correlated with it
+stopping, which was coincidence.
+
+The lesson stands regardless of the cause: **clients publish things nobody
+asked for.** The command handler parses inbound messages against a known
+grammar and silently ignores anything else. It never treats an unrecognised
+message as an instruction, and never echoes one back, which would turn two
+misconfigured clients into a loop.
 
 ### Invoking the model
 
