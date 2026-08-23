@@ -11,7 +11,10 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 # with a 403 (error 1010) before the request ever reaches the API.
 USER_AGENT = "arrstack-alerter/1.0"
 
-TAGS = {HEALTHY: "green_circle", WARNING: "yellow_circle", ERROR: "red_circle"}
+# Garmin watches render notifications with a small hardcoded emoji subset
+# rather than a full emoji font. The coloured circles arrive as empty boxes;
+# these three were confirmed to render on a Forerunner 245.
+TAGS = {HEALTHY: "thumbsup", WARNING: "confused", ERROR: "thumbsdown"}
 HEADLINE = {
     HEALTHY: "recovered",
     WARNING: "warning",

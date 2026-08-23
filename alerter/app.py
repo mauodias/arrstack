@@ -173,7 +173,7 @@ def check_staleness():
     if confirmed is None or previous is None:
         return
     title = STALE_RULE_NAME + (" stalled" if stale else " recovered")
-    tags = "red_circle" if stale else "green_circle"
+    tags = "thumbsdown" if stale else "thumbsup"
     body = "No metrics sample for %s seconds." % age if stale else "Collection resumed."
     STORE.record(int(time.time()), STALE_RULE_NAME, previous, confirmed, age, title, body)
     push(title, body, tags)

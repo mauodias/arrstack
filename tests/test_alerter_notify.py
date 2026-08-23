@@ -36,18 +36,18 @@ class TestFormatAlert(unittest.TestCase):
         self.rule = Rule(metric="m", name="VPS disk", direction="above",
                          warning=80.0, error=90.0)
 
-    def test_error_uses_the_red_circle_tag(self):
+    def test_error_uses_the_thumbsdown_tag(self):
         title, _, tags = format_alert(self.rule, WARNING, ERROR, 91.5)
-        self.assertEqual(tags, "red_circle")
+        self.assertEqual(tags, "thumbsdown")
         self.assertIn("VPS disk", title)
 
-    def test_warning_uses_the_yellow_circle_tag(self):
+    def test_warning_uses_the_confused_tag(self):
         _, _, tags = format_alert(self.rule, HEALTHY, WARNING, 82.0)
-        self.assertEqual(tags, "yellow_circle")
+        self.assertEqual(tags, "confused")
 
-    def test_recovery_uses_the_green_circle_tag(self):
+    def test_recovery_uses_the_thumbsup_tag(self):
         _, _, tags = format_alert(self.rule, ERROR, HEALTHY, 40.0)
-        self.assertEqual(tags, "green_circle")
+        self.assertEqual(tags, "thumbsup")
 
     def test_title_is_latin_1_encodable(self):
         title, _, _ = format_alert(self.rule, HEALTHY, ERROR, 91.5)
@@ -72,19 +72,19 @@ class TestSendNtfy(unittest.TestCase):
 
     def test_posts_title_and_body_to_the_topic(self):
         self.assertTrue(
-            send_ntfy(self.base, "sometopic", "a title", "a body", "green_circle")
+            send_ntfy(self.base, "sometopic", "a title", "a body", "thumbsup")
         )
         self.assertEqual(RECEIVED[0]["path"], "/sometopic")
         self.assertEqual(RECEIVED[0]["title"], "a title")
         self.assertEqual(RECEIVED[0]["body"], "a body")
 
     def test_sends_a_user_agent(self):
-        send_ntfy(self.base, "sometopic", "a title", "a body", "green_circle")
+        send_ntfy(self.base, "sometopic", "a title", "a body", "thumbsup")
         self.assertEqual(RECEIVED[0]["agent"], "arrstack-alerter/1.0")
 
     def test_unreachable_server_returns_false(self):
         self.assertFalse(
-            send_ntfy("http://127.0.0.1:1", "t", "a", "b", "red_circle")
+            send_ntfy("http://127.0.0.1:1", "t", "a", "b", "thumbsdown")
         )
 
 
