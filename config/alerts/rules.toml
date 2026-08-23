@@ -1,0 +1,49 @@
+# Thresholds for the alerter container. Metric names match the samples table
+# written by metrics/app.py. `of` divides one metric by another to give a
+# percentage, because the collector stores absolute values.
+
+[[rule]]
+metric    = "vps_disk.used_bytes"
+of        = "vps_disk.total_bytes"
+name      = "VPS disk"
+direction = "above"
+warning   = 80
+error     = 90
+
+[[rule]]
+metric    = "hetzner_box.used_bytes"
+of        = "hetzner_box.total_bytes"
+name      = "Storage Box"
+direction = "above"
+warning   = 80
+error     = 92
+
+[[rule]]
+metric    = "vps_mem.used_bytes"
+of        = "vps_mem.total_bytes"
+name      = "VPS memory"
+direction = "above"
+warning   = 85
+error     = 94
+
+[[rule]]
+metric    = "vps_swap.used_bytes"
+of        = "vps_swap.total_bytes"
+name      = "VPS swap"
+direction = "above"
+warning   = 50
+error     = 80
+
+[[rule]]
+metric    = "slskd.connected"
+name      = "Soulseek connection"
+direction = "below"
+error     = 1
+debounce  = 3
+
+[[rule]]
+metric    = "slskd.downloads.success_rate"
+name      = "Soulseek success rate"
+direction = "below"
+warning   = 75
+error     = 60
