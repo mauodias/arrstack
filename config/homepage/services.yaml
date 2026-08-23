@@ -188,3 +188,19 @@
             - field: storage_boxes.0.storage_box_type.size
               label: Total
               format: bytes
+
+    # Iframe widget, so the browser fetches this URL itself — Homepage does
+    # NOT proxy iframe widgets. That is why the metrics container shares
+    # tailscale's network namespace: the src has to resolve from the laptop
+    # exactly like http://arr-vps:3000 does, not just from inside Docker.
+    - Stack metrics:
+        href: http://arr-vps:8099
+        icon: mdi-chart-line
+        description: Disk, transfer and backlog history
+        widget:
+          type: iframe
+          name: metrics
+          src: http://arr-vps:8099/?range=24h
+          classes: h-96
+          referrerPolicy: same-origin
+          refreshInterval: 300000

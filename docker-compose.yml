@@ -463,6 +463,695 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Samples stack metrics into SQLite every 5 minutes and serves them as
+  # server-rendered SVG charts. The whole program is embedded below rather
+  # than fetched like bootstrap/init.sh, so it ships with the single file
+  # Arcane provisions and needs nothing pushed to GitHub to start working.
+  #
+  # Shares tailscale's network namespace for the same reason the other web
+  # UIs do: Homepage iframe widgets are not proxied, so the browser fetches
+  # this URL directly and it has to answer on the arr-vps Tailscale name.
+  # Being in that namespace also puts Lidarr on localhost and leaves
+  # gluetun's 172.28.0.10 reachable over vpn_net.
+  metrics:
+    image: python:3.12-alpine
+    container_name: arr-metrics
+    network_mode: "service:tailscale"
+    environment:
+      - TZ=${TZ}
+      - METRICS_PORT=8099
+      - METRICS_INTERVAL=300
+      - METRICS_DB=/data/metrics.db
+      - METRICS_DISK_PATH=/hostdisk/qbittorrent
+      - QBT_URL=http://172.28.0.10:8080
+      - QBT_USERNAME=${QBT_USERNAME}
+      - QBT_PASSWORD=${QBT_PASSWORD}
+      - LIDARR_URL=http://localhost:8686
+      - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
+    volumes:
+      # History has to outlive the down/up that every deploy performs, so the
+      # database lives on a bind mount rather than in the container.
+      - ./data/metrics:/data
+      # Read-only view of qBittorrent's temp path, so statvfs reports the VPS
+      # partition holding in-progress downloads. Same mount the homepage
+      # service uses for its disk widget.
+      - ./config/qbittorrent:/hostdisk/qbittorrent:ro
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/metrics.py <<'PYEOF'
+        """Collects stack metrics into SQLite and serves them as server-rendered SVG charts."""
+        import http.cookiejar
+        import http.server
+        import json
+        import os
+        import socketserver
+        import sqlite3
+        import threading
+        import time
+        import traceback
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        DB_PATH = os.environ.get("METRICS_DB", "/data/metrics.db")
+        PORT = int(os.environ.get("METRICS_PORT", "8099"))
+        INTERVAL = int(os.environ.get("METRICS_INTERVAL", "300"))
+        DISK_PATH = os.environ.get("METRICS_DISK_PATH", "/hostdisk/qbittorrent")
+        QBT_URL = os.environ.get("QBT_URL", "http://172.28.0.10:8080").rstrip("/")
+        QBT_USERNAME = os.environ.get("QBT_USERNAME", "")
+        QBT_PASSWORD = os.environ.get("QBT_PASSWORD", "")
+        LIDARR_URL = os.environ.get("LIDARR_URL", "http://localhost:8686").rstrip("/")
+        LIDARR_API_KEY = os.environ.get("LIDARR_API_KEY", "")
+        HETZNER_API_TOKEN = os.environ.get("HETZNER_API_TOKEN", "")
+        HTTP_TIMEOUT = 30
+
+        TORRENT_STATES = (
+            "downloading", "stalledDL", "queuedDL", "uploading", "stalledUP",
+            "queuedUP", "pausedDL", "pausedUP", "stoppedDL", "stoppedUP",
+            "checkingDL", "checkingUP", "error", "missingFiles", "metaDL",
+        )
+
+
+        def log(msg):
+            print("[metrics] " + msg, flush=True)
+
+
+        def db_connect():
+            conn = sqlite3.connect(DB_PATH, timeout=30)
+            conn.execute("PRAGMA journal_mode=WAL")
+            return conn
+
+
+        def db_init():
+            os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+            conn = db_connect()
+            with conn:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS samples ("
+                    "ts INTEGER NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_samples_metric_ts ON samples (metric, ts)"
+                )
+            conn.close()
+
+
+        def http_json(url, headers=None, opener=None, timeout=HTTP_TIMEOUT):
+            req = urllib.request.Request(url, headers=headers or {})
+            open_fn = opener.open if opener else urllib.request.urlopen
+            with open_fn(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+
+        def collect_disk():
+            st = os.statvfs(DISK_PATH)
+            total = st.f_blocks * st.f_frsize
+            free = st.f_bavail * st.f_frsize
+            used = total - st.f_bfree * st.f_frsize
+            return {
+                "vps_disk.total_bytes": float(total),
+                "vps_disk.used_bytes": float(used),
+                "vps_disk.free_bytes": float(free),
+            }
+
+
+        def collect_hetzner():
+            if not HETZNER_API_TOKEN:
+                raise RuntimeError("HETZNER_API_TOKEN is not set")
+            data = http_json(
+                "https://api.hetzner.com/v1/storage_boxes",
+                headers={"Authorization": "Bearer " + HETZNER_API_TOKEN},
+            )
+            boxes = data.get("storage_boxes") or []
+            if not boxes:
+                raise RuntimeError("no storage boxes returned")
+            box = boxes[0]
+            return {
+                "hetzner_box.used_bytes": float(box["stats"]["size"]),
+                "hetzner_box.total_bytes": float(box["storage_box_type"]["size"]),
+            }
+
+
+        def collect_qbittorrent():
+            # qBittorrent names its session cookie QBT_SID_<port>, so the jar tracks it
+            # by whatever name the server sends rather than a hardcoded one.
+            jar = http.cookiejar.CookieJar()
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+            body = urllib.parse.urlencode(
+                {"username": QBT_USERNAME, "password": QBT_PASSWORD}
+            ).encode("utf-8")
+            login = urllib.request.Request(
+                QBT_URL + "/api/v2/auth/login", data=body, headers={"Referer": QBT_URL}
+            )
+            with opener.open(login, timeout=HTTP_TIMEOUT) as resp:
+                resp.read()
+            if not len(jar):
+                raise RuntimeError("qBittorrent login returned no session cookie")
+
+            info = http_json(
+                QBT_URL + "/api/v2/transfer/info", headers={"Referer": QBT_URL}, opener=opener
+            )
+            torrents = http_json(
+                QBT_URL + "/api/v2/torrents/info", headers={"Referer": QBT_URL}, opener=opener
+            )
+            out = {
+                # transfer/info speeds and limits are all bytes per second.
+                "qbt.dl_speed_bps": float(info.get("dl_info_speed", 0)),
+                "qbt.ul_speed_bps": float(info.get("up_info_speed", 0)),
+                "qbt.dl_session_bytes": float(info.get("dl_info_data", 0)),
+                "qbt.ul_session_bytes": float(info.get("up_info_data", 0)),
+                "qbt.torrents_total": float(len(torrents)),
+            }
+            counts = {state: 0 for state in TORRENT_STATES}
+            for t in torrents:
+                state = t.get("state", "unknown")
+                counts[state] = counts.get(state, 0) + 1
+            for state, n in counts.items():
+                out["qbt.torrents." + state] = float(n)
+            return out
+
+
+        def collect_lidarr():
+            if not LIDARR_API_KEY:
+                raise RuntimeError("LIDARR_API_KEY is not set")
+            headers = {"X-Api-Key": LIDARR_API_KEY}
+            missing = http_json(
+                LIDARR_URL + "/api/v1/wanted/missing?pageSize=1", headers=headers
+            )
+            queue = http_json(LIDARR_URL + "/api/v1/queue?pageSize=1", headers=headers)
+            artists = http_json(LIDARR_URL + "/api/v1/artist", headers=headers)
+            size = 0.0
+            for a in artists:
+                stats = a.get("statistics") or {}
+                size += float(stats.get("sizeOnDisk") or 0)
+            return {
+                "lidarr.wanted_missing": float(missing.get("totalRecords", 0)),
+                "lidarr.queue_count": float(queue.get("totalRecords", 0)),
+                "lidarr.size_on_disk_bytes": size,
+                "lidarr.artist_count": float(len(artists)),
+            }
+
+
+        COLLECTORS = (
+            ("disk", collect_disk),
+            ("hetzner", collect_hetzner),
+            ("qbittorrent", collect_qbittorrent),
+            ("lidarr", collect_lidarr),
+        )
+
+
+        def collect_once():
+            """Runs every collector, isolating failures so one dead service never
+            suppresses the others or ends the thread."""
+            ts = int(time.time())
+            rows = []
+            for name, fn in COLLECTORS:
+                try:
+                    for metric, value in fn().items():
+                        rows.append((ts, metric, float(value)))
+                    rows.append((ts, "collect_ok." + name, 1.0))
+                except Exception as exc:
+                    rows.append((ts, "collect_ok." + name, 0.0))
+                    log("collector " + name + " failed: " + repr(exc))
+            try:
+                conn = db_connect()
+                with conn:
+                    conn.executemany("INSERT INTO samples (ts, metric, value) VALUES (?, ?, ?)", rows)
+                conn.close()
+            except Exception:
+                log("failed to write samples:\n" + traceback.format_exc())
+            return len(rows)
+
+
+        def collector_loop():
+            while True:
+                started = time.time()
+                try:
+                    n = collect_once()
+                    log("wrote " + str(n) + " samples")
+                except Exception:
+                    log("collection cycle raised:\n" + traceback.format_exc())
+                delay = INTERVAL - (time.time() - started)
+                time.sleep(delay if delay > 0 else 1)
+
+
+        RANGES = (("24h", 86400), ("7d", 604800), ("30d", 2592000))
+        RANGE_SECONDS = dict(RANGES)
+
+
+        def series_for(conn, metric, since):
+            cur = conn.execute(
+                "SELECT ts, value FROM samples WHERE metric = ? AND ts >= ? ORDER BY ts",
+                (metric, since),
+            )
+            return cur.fetchall()
+
+
+        def latest(conn, metric):
+            cur = conn.execute(
+                "SELECT ts, value FROM samples WHERE metric = ? ORDER BY ts DESC LIMIT 1", (metric,)
+            )
+            return cur.fetchone()
+
+
+        def downsample(points, buckets=180):
+            """Averages points into fixed-width time buckets so a 30-day window costs
+            the same to render as a 24-hour one."""
+            if len(points) <= buckets:
+                return points
+            lo = points[0][0]
+            hi = points[-1][0]
+            span = max(hi - lo, 1)
+            acc = {}
+            for ts, value in points:
+                idx = int((ts - lo) * buckets / span)
+                if idx >= buckets:
+                    idx = buckets - 1
+                t, v, n = acc.get(idx, (0, 0.0, 0))
+                acc[idx] = (t + ts, v + value, n + 1)
+            return [(t // n, v / n) for _, (t, v, n) in sorted(acc.items())]
+
+
+        def ratio_series(num, den):
+            by_ts = dict(den)
+            out = []
+            for ts, value in num:
+                total = by_ts.get(ts)
+                if total:
+                    out.append((ts, value * 100.0 / total))
+            return out
+
+
+        def fmt_bytes(v):
+            v = float(v)
+            for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
+                if abs(v) < 1024 or unit == "PiB":
+                    return ("%.0f %s" if unit == "B" else "%.1f %s") % (v, unit)
+                v /= 1024.0
+            return str(v)
+
+
+        def fmt_bps(v):
+            return fmt_bytes(v) + "/s"
+
+
+        def fmt_pct(v):
+            return "%.1f%%" % v
+
+
+        def fmt_count(v):
+            return "%.0f" % v
+
+
+        FORMATTERS = {"bytes": fmt_bytes, "bps": fmt_bps, "pct": fmt_pct, "count": fmt_count}
+
+
+        def nice_ticks(lo, hi, target=4):
+            if hi <= lo:
+                hi = lo + 1.0
+            raw = (hi - lo) / target
+            mag = 10.0 ** int(("%e" % raw).split("e")[1])
+            for mult in (1, 2, 2.5, 5, 10):
+                step = mag * mult
+                if raw <= step:
+                    break
+            start = step * int(lo / step)
+            if start > lo:
+                start -= step
+            ticks = []
+            t = start
+            # Runs one step past `hi` so the topmost gridline is always at or above the
+            # largest value, instead of leaving the peak floating in unlabelled space.
+            while t < hi + step * 1.001:
+                if t >= lo - step * 0.001:
+                    ticks.append(t)
+                t += step
+            return ticks
+
+
+        def esc(s):
+            return (
+                str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace('"', "&quot;")
+            )
+
+
+        # The SVG scales uniformly to the card width, so these user units are chosen
+        # close to the rendered pixel size at a typical card width — that keeps the
+        # axis type legible instead of shrunken or horizontally squashed.
+        W, H = 412, 172
+        PAD_L, PAD_R, PAD_T, PAD_B = 64, 10, 12, 24
+
+
+        def svg_chart(series, fmt_key, zero_based=True):
+            """Renders one time-series chart as standalone inline SVG.
+
+            `series` is a list of (label, color, points) where points are (ts, value).
+            """
+            fmt = FORMATTERS[fmt_key]
+            drawable = [s for s in series if len(s[2]) >= 1]
+            if not drawable:
+                return (
+                    '<svg class="chart" viewBox="0 0 %d %d" role="img" aria-label="no data yet">'
+                    '<text x="%d" y="%d" class="empty">No samples collected yet</text></svg>'
+                    % (W, H, W // 2, H // 2)
+                )
+
+            all_ts = [p[0] for _, _, pts in drawable for p in pts]
+            all_v = [p[1] for _, _, pts in drawable for p in pts]
+            t0, t1 = min(all_ts), max(all_ts)
+            if t1 == t0:
+                t1 = t0 + 1
+            vmin = 0.0 if zero_based else min(all_v)
+            vmax = max(all_v)
+            if vmax <= vmin:
+                vmax = vmin + 1.0
+            ticks = nice_ticks(vmin, vmax)
+            vmin, vmax = min(vmin, ticks[0]), max(vmax, ticks[-1])
+
+            def x_of(ts):
+                return PAD_L + (ts - t0) * (W - PAD_L - PAD_R) / (t1 - t0)
+
+            def y_of(v):
+                return PAD_T + (vmax - v) * (H - PAD_T - PAD_B) / (vmax - vmin)
+
+            parts = [
+                '<svg class="chart" viewBox="0 0 %d %d" role="img">' % (W, H)
+            ]
+            for t in ticks:
+                y = y_of(t)
+                parts.append(
+                    '<line class="grid" x1="%d" y1="%.1f" x2="%d" y2="%.1f"/>' % (PAD_L, y, W - PAD_R, y)
+                )
+                parts.append(
+                    '<text class="ytick" x="%d" y="%.1f">%s</text>' % (PAD_L - 7, y + 3.8, esc(fmt(t)))
+                )
+
+            span = t1 - t0
+            x_fmt = "%H:%M" if span <= 172800 else "%d %b"
+            for i in range(4):
+                ts = t0 + span * i / 3.0
+                x = x_of(ts)
+                anchor = "start" if i == 0 else ("end" if i == 3 else "middle")
+                parts.append(
+                    '<text class="xtick" x="%.1f" y="%d" text-anchor="%s">%s</text>'
+                    % (x, H - 7, anchor, esc(time.strftime(x_fmt, time.localtime(ts))))
+                )
+
+            for label, color, pts in drawable:
+                pts = downsample(pts)
+                coords = " ".join("%.1f,%.1f" % (x_of(ts), y_of(v)) for ts, v in pts)
+                if len(pts) == 1:
+                    parts.append(
+                        '<circle cx="%.1f" cy="%.1f" r="4" fill="%s"/>'
+                        % (x_of(pts[0][0]), y_of(pts[0][1]), color)
+                    )
+                else:
+                    parts.append(
+                        '<polyline class="line" points="%s" stroke="%s"/>' % (coords, color)
+                    )
+                last_ts, last_v = pts[-1]
+                parts.append(
+                    '<circle cx="%.1f" cy="%.1f" r="3" fill="%s" stroke="var(--surface-2)" stroke-width="2"/>'
+                    % (x_of(last_ts), y_of(last_v), color)
+                )
+                # Native tooltips carry the exact reading without any script.
+                for ts, v in pts[:: max(1, len(pts) // 40)]:
+                    parts.append(
+                        '<circle cx="%.1f" cy="%.1f" r="7" fill="transparent"><title>%s  %s: %s</title></circle>'
+                        % (
+                            x_of(ts), y_of(v),
+                            esc(time.strftime("%d %b %H:%M", time.localtime(ts))),
+                            esc(label), esc(fmt(v)),
+                        )
+                    )
+            parts.append(
+                '<line class="axis" x1="%d" y1="%.1f" x2="%d" y2="%.1f"/>'
+                % (PAD_L, y_of(vmin), W - PAD_R, y_of(vmin))
+            )
+            parts.append("</svg>")
+            return "".join(parts)
+
+
+        def card(title, subtitle, series, fmt_key, zero_based=True):
+            fmt = FORMATTERS[fmt_key]
+            legend = ""
+            if len(series) > 1:
+                legend = '<div class="legend">' + "".join(
+                    '<span class="key"><i style="background:%s"></i>%s%s</span>'
+                    % (color, esc(label), (" &middot; " + esc(fmt(pts[-1][1]))) if pts else "")
+                    for label, color, pts in series
+                ) + "</div>"
+            else:
+                label, color, pts = series[0]
+                if pts:
+                    subtitle = fmt(pts[-1][1]) + " &middot; " + subtitle
+            return (
+                '<section class="card"><h2>%s</h2><p class="sub">%s</p>%s%s</section>'
+                % (esc(title), subtitle, legend, svg_chart(series, fmt_key, zero_based))
+            )
+
+
+        def tile(label, value, note):
+            return (
+                '<div class="tile"><span class="tile-label">%s</span>'
+                '<span class="tile-value">%s</span><span class="tile-note">%s</span></div>'
+                % (esc(label), esc(value), esc(note))
+            )
+
+
+        SERIES_1 = "#3987e5"
+        SERIES_2 = "#d95926"
+        SERIES_3 = "#199e70"
+        SERIES_4 = "#c98500"
+
+        CSS = """
+        :root {
+          --surface-0: #0f172a; --surface-1: #16203a; --surface-2: #1e293b;
+          --border: #2b3950;
+          --text-primary: #e8eef8; --text-secondary: #a7b4cb; --text-muted: #75849e;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0; padding: 14px;
+          background: var(--surface-0); color: var(--text-primary);
+          font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          color-scheme: dark;
+        }
+        header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+                 justify-content: space-between; margin-bottom: 12px; }
+        h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .01em; }
+        .ranges { display: flex; gap: 6px; }
+        .ranges a {
+          color: var(--text-secondary); text-decoration: none; font-size: 12px;
+          padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px;
+        }
+        .ranges a.on { color: var(--text-primary); background: var(--surface-2); border-color: #3c4c68; }
+        .tiles { display: grid; gap: 8px; margin-bottom: 12px;
+                 grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); }
+        .tile { background: var(--surface-1); border: 1px solid var(--border);
+                border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 1px; }
+        .tile-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+                      letter-spacing: .06em; }
+        .tile-value { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .tile-note { font-size: 11px; color: var(--text-secondary); }
+        .grid-cards { display: grid; gap: 10px;
+                      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+        /* Grid and flex items default to min-width:auto, which floors them at the
+           SVG's intrinsic width and pushes the page into horizontal overflow inside a
+           narrow iframe. */
+        .tile, .card { min-width: 0; }
+        .card { background: var(--surface-1); border: 1px solid var(--border);
+                border-radius: 8px; padding: 11px 12px 6px; }
+        .card h2 { font-size: 13px; font-weight: 600; margin: 0; }
+        .sub { font-size: 11.5px; color: var(--text-secondary); margin: 2px 0 6px; }
+        .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 4px; font-size: 11.5px;
+                  color: var(--text-secondary); }
+        .key { display: inline-flex; align-items: center; gap: 5px; }
+        .key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+        svg.chart { display: block; width: 100%; min-width: 0; height: auto; }
+        .grid { stroke: #26324a; stroke-width: 1; }
+        .axis { stroke: #3a4a66; stroke-width: 1; }
+        .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+        .ytick { fill: var(--text-muted); font-size: 10.5px; text-anchor: end; }
+        .xtick { fill: var(--text-muted); font-size: 10.5px; }
+        .empty { fill: var(--text-muted); font-size: 12px; text-anchor: middle; }
+        details { margin-top: 12px; }
+        summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+        table { border-collapse: collapse; margin-top: 8px; font-size: 12px; width: 100%; }
+        th, td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-muted); font-weight: 500; }
+        td.num { font-variant-numeric: tabular-nums; }
+        footer { margin-top: 12px; font-size: 11px; color: var(--text-muted); }
+        .bad { color: #e66767; }
+        """
+
+
+        def render_page(range_key):
+            window = RANGE_SECONDS[range_key]
+            since = int(time.time()) - window
+            conn = db_connect()
+            try:
+                disk_used = series_for(conn, "vps_disk.used_bytes", since)
+                disk_total = series_for(conn, "vps_disk.total_bytes", since)
+                box_used = series_for(conn, "hetzner_box.used_bytes", since)
+                box_total = series_for(conn, "hetzner_box.total_bytes", since)
+                dl = series_for(conn, "qbt.dl_speed_bps", since)
+                ul = series_for(conn, "qbt.ul_speed_bps", since)
+                missing = series_for(conn, "lidarr.wanted_missing", since)
+                queue = series_for(conn, "lidarr.queue_count", since)
+                lib = series_for(conn, "lidarr.size_on_disk_bytes", since)
+                active = series_for(conn, "qbt.torrents.downloading", since)
+                queued = series_for(conn, "qbt.torrents.queuedDL", since)
+
+                tiles = []
+                row = latest(conn, "vps_disk.used_bytes")
+                tot = latest(conn, "vps_disk.total_bytes")
+                if row and tot and tot[1]:
+                    tiles.append(tile("VPS disk", fmt_pct(row[1] * 100.0 / tot[1]),
+                                      fmt_bytes(row[1]) + " of " + fmt_bytes(tot[1])))
+                row = latest(conn, "hetzner_box.used_bytes")
+                tot = latest(conn, "hetzner_box.total_bytes")
+                if row and tot and tot[1]:
+                    tiles.append(tile("Storage Box", fmt_pct(row[1] * 100.0 / tot[1]),
+                                      fmt_bytes(row[1]) + " of " + fmt_bytes(tot[1])))
+                row = latest(conn, "qbt.dl_speed_bps")
+                if row:
+                    tiles.append(tile("Download", fmt_bps(row[1]), "qBittorrent now"))
+                row = latest(conn, "qbt.ul_speed_bps")
+                if row:
+                    tiles.append(tile("Upload", fmt_bps(row[1]), "qBittorrent now"))
+                row = latest(conn, "lidarr.wanted_missing")
+                if row:
+                    tiles.append(tile("Wanted", fmt_count(row[1]), "Lidarr missing albums"))
+                row = latest(conn, "lidarr.size_on_disk_bytes")
+                if row:
+                    tiles.append(tile("Music library", fmt_bytes(row[1]), "Lidarr on disk"))
+
+                cards = [
+                    card("VPS disk used", "partition holding qBittorrent's incomplete path",
+                         [("Used", SERIES_3, ratio_series(disk_used, disk_total))], "pct"),
+                    card("Hetzner Storage Box used", "remote media library",
+                         [("Used", SERIES_4, ratio_series(box_used, box_total))], "pct"),
+                    card("qBittorrent transfer rate", "global session speed",
+                         [("Download", SERIES_1, dl), ("Upload", SERIES_2, ul)], "bps"),
+                    card("Torrents by state", "counts from torrents/info",
+                         [("Downloading", SERIES_1, active), ("Queued", SERIES_2, queued)], "count"),
+                    card("Lidarr backlog", "wanted-missing and queue",
+                         [("Wanted missing", SERIES_1, missing), ("Queue", SERIES_2, queue)], "count"),
+                    card("Music library size", "sum of artist sizeOnDisk",
+                         [("On disk", SERIES_3, lib)], "bytes", zero_based=False),
+                ]
+
+                status = []
+                for name, _ in COLLECTORS:
+                    row = latest(conn, "collect_ok." + name)
+                    if row is None:
+                        status.append((name, "no data", "", "bad"))
+                    else:
+                        status.append((
+                            name,
+                            "ok" if row[1] else "failing",
+                            time.strftime("%d %b %H:%M", time.localtime(row[0])),
+                            "" if row[1] else "bad",
+                        ))
+                total_samples = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+            finally:
+                conn.close()
+
+            ranges_html = "".join(
+                '<a class="%s" href="?range=%s">%s</a>' % ("on" if k == range_key else "", k, k)
+                for k, _ in RANGES
+            )
+            table_rows = "".join(
+                '<tr><td>%s</td><td class="%s">%s</td><td class="num">%s</td></tr>'
+                % (esc(n), cls, esc(s), esc(t))
+                for n, s, t, cls in status
+            )
+            return (
+                "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                "<title>arrstack metrics</title><style>%s</style></head><body>"
+                "<header><h1>arrstack metrics</h1><nav class=\"ranges\">%s</nav></header>"
+                "<div class=\"tiles\">%s</div><div class=\"grid-cards\">%s</div>"
+                "<details><summary>Collector status</summary>"
+                "<table><thead><tr><th>Source</th><th>State</th><th>Last sample</th></tr></thead>"
+                "<tbody>%s</tbody></table></details>"
+                "<footer>%s samples stored &middot; collected every %d min &middot; rendered %s</footer>"
+                "</body></html>"
+                % (CSS, ranges_html, "".join(tiles), "".join(cards), table_rows,
+                   total_samples, INTERVAL // 60,
+                   time.strftime("%d %b %H:%M", time.localtime()))
+            )
+
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def _send(self, code, body, content_type):
+                payload = body.encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/healthz":
+                    self._send(200, "ok", "text/plain; charset=utf-8")
+                    return
+                if parsed.path not in ("/", "/index.html"):
+                    self._send(404, "not found", "text/plain; charset=utf-8")
+                    return
+                wanted = urllib.parse.parse_qs(parsed.query).get("range", ["24h"])[0]
+                if wanted not in RANGE_SECONDS:
+                    wanted = "24h"
+                try:
+                    self._send(200, render_page(wanted), "text/html; charset=utf-8")
+                except Exception:
+                    log("render failed:\n" + traceback.format_exc())
+                    self._send(500, "render failed", "text/plain; charset=utf-8")
+
+            def log_message(self, *args):
+                pass
+
+
+        class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+
+        def main():
+            db_init()
+            threading.Thread(target=collector_loop, daemon=True).start()
+            log("serving on port " + str(PORT))
+            Server(("0.0.0.0", PORT), Handler).serve_forever()
+
+
+        if __name__ == "__main__":
+            main()
+        PYEOF
+        exec python3 -u /tmp/metrics.py
+    # Deliberately NOT the x-mount-check anchor: this container never touches
+    # the FUSE mount, so it has nothing to verify and must not kill itself
+    # when remote storage is unavailable.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/healthz', timeout=5).read()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      tailscale:
+        condition: service_started
+    mem_limit: 64m
+    restart: unless-stopped
+
 networks:
   vpn_net:
     driver: bridge

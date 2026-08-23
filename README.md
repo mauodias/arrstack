@@ -13,7 +13,7 @@ Full architecture, rationale, and per-service configuration notes:
 
 ## Applications
 
-17 services, all defined in `docker-compose.yml`.
+18 services, all defined in `docker-compose.yml`.
 
 ### Infrastructure
 
@@ -54,13 +54,18 @@ Full architecture, rationale, and per-service configuration notes:
 
 - **homepage** — aggregates status and links for the apps above into a
   single dashboard
+- **metrics** (`:8099`) — samples disk, Storage Box, qBittorrent and Lidarr
+  figures into SQLite every 5 minutes and serves the history as
+  server-rendered SVG charts, which Homepage embeds as an iframe tile. The
+  whole program is embedded in `docker-compose.yml` and uses only the Python
+  standard library, so there is nothing to build or install
 
 ## Repo layout
 
 - `docker-compose.yml` — the whole stack: `bootstrap`, `rclone-mount`,
   `tailscale`, `gluetun`, `qbittorrent`, `prowlarr`, `flaresolverr`,
   `radarr`, `sonarr`, `bazarr`, `seerr`, `lidarr`, `slskd`, `soularr`,
-  `navidrome`, `jellyfin`, `homepage`
+  `navidrome`, `jellyfin`, `homepage`, `metrics`
 - `.env.example` — template for the local `.env` (gitignored, never
   committed)
 - `bootstrap/init.sh` — idempotent setup that runs as a compose service on
