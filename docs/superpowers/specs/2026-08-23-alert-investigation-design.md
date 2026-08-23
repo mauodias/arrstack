@@ -60,11 +60,13 @@ ntfy **client app**, not by ntfy's servers, so the request originates from the
 phone. With the phone on the tailnet it reaches `arr-vps:8100` directly and
 nothing is exposed.
 
-*Verify this during implementation before building on it.* If a client turns
-out not to issue the request as expected, topic B is the fallback: alerter
-holds a long-poll subscription to it and reacts to messages, which requires no
-inbound connectivity at all. Topic B is built regardless, because it is also
-how the operator replies when off the tailnet.
+**Verified on the operator's device (2026-08-23):** both a `view` action
+opening `arr-vps:8100/digest/preview` and an `http` action firing `GET
+/healthz` worked from the notification, over Tailscale, with nothing exposed.
+
+Topic B is still built, for two reasons: it is how the operator replies when
+off the tailnet, and free-text answers to an agent's question cannot be
+expressed as buttons.
 
 ### Invoking the model
 
@@ -111,8 +113,9 @@ near-term recovery to wait for.
 These events are **emitted on threshold crossings, not continuously**, so a run
 below every threshold may report nothing. The investigator captures every
 event it sees and stores the latest reading per window in alerter's database.
-Polling for a fresh figure is not viable: a bare `claude -p "ok"` costs about
-0.18 USD of quota, so measuring would consume the thing being measured.
+Polling for a fresh figure is not viable: a bare `claude -p "ok"` reports a
+notional cost around 0.18 USD, which on a quota-based account is not money but
+is a real draw on the window. Measuring would consume the thing being measured.
 
 Consequences:
 
@@ -231,9 +234,9 @@ same container repeatedly.
 ## Investigation rate limiting
 
 Investigations are limited **per incident, not per notification**. A flapping
-alert must not trigger ten investigations overnight — at roughly 0.18 USD of
-quota each before any work happens, that is both wasteful and the fastest route
-to an exhausted window when a real incident arrives.
+alert must not trigger ten investigations overnight: each draws on the window
+before any useful work happens, which is the fastest route to an exhausted
+quota when a real incident arrives.
 
 - One investigation per open incident, unless the operator explicitly asks for
   another.
@@ -280,6 +283,7 @@ approve.
 the operator wanted. The ceilings and the refuse-to-start rule mitigate this;
 they do not eliminate it.
 
-**ntfy client `http` action behaviour is load-bearing and unverified.** If it
-does not work as expected, topic B carries the whole interaction instead. This
-is why topic B is not optional.
+**Quota is a shared, non-monetary budget.** The account is quota-based, so an
+investigation costs no money — it costs capacity the operator may want for
+their own work. That makes the ceilings a usability control rather than a
+financial one, and it is why running out is an acceptable design outcome.
