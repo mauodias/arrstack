@@ -20,6 +20,7 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "path": self.path,
                 "title": self.headers.get("Title"),
+                "agent": self.headers.get("User-Agent"),
                 "body": self.rfile.read(length).decode(),
             }
         )
@@ -76,6 +77,10 @@ class TestSendNtfy(unittest.TestCase):
         self.assertEqual(RECEIVED[0]["path"], "/sometopic")
         self.assertEqual(RECEIVED[0]["title"], "a title")
         self.assertEqual(RECEIVED[0]["body"], "a body")
+
+    def test_sends_a_user_agent(self):
+        send_ntfy(self.base, "sometopic", "a title", "a body", "green_circle")
+        self.assertEqual(RECEIVED[0]["agent"], "arrstack-alerter/1.0")
 
     def test_unreachable_server_returns_false(self):
         self.assertFalse(

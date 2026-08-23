@@ -7,6 +7,10 @@ from evaluate import HEALTHY, WARNING, ERROR
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 
+# Resend sits behind Cloudflare, which rejects urllib's default User-Agent
+# with a 403 (error 1010) before the request ever reaches the API.
+USER_AGENT = "arrstack-alerter/1.0"
+
 TAGS = {HEALTHY: "green_circle", WARNING: "yellow_circle", ERROR: "red_circle"}
 HEADLINE = {
     HEALTHY: "recovered",
@@ -38,6 +42,7 @@ def send_ntfy(server, topic, title, body, tags):
             "Title": title,
             "Tags": tags,
             "Content-Type": "text/plain; charset=utf-8",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
@@ -61,6 +66,7 @@ def send_email(api_key, sender, recipient, subject, body_html,
         headers={
             "Authorization": "Bearer " + api_key,
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
