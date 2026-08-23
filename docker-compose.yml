@@ -845,11 +845,14 @@ services:
         
         
         def fmt_bytes(v):
+            """Decimal units, matching how Homepage's own widgets render byte
+            counts. The same figure in binary units reads about 7% smaller at
+            GB scale, which looks like two services disagreeing about storage."""
             v = float(v)
-            for unit in ("B", "KiB", "MiB", "GiB", "TiB", "PiB"):
-                if abs(v) < 1024 or unit == "PiB":
+            for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+                if abs(v) < 1000 or unit == "PB":
                     return ("%.0f %s" if unit == "B" else "%.1f %s") % (v, unit)
-                v /= 1024.0
+                v /= 1000.0
             return str(v)
         
         
@@ -1163,13 +1166,13 @@ services:
         
           function fmtBytes(v) {
             v = Number(v);
-            var units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+            var units = ["B", "KB", "MB", "GB", "TB", "PB"];
             for (var i = 0; i < units.length; i++) {
               var unit = units[i];
-              if (Math.abs(v) < 1024 || unit === "PiB") {
+              if (Math.abs(v) < 1000 || unit === "PB") {
                 return (unit === "B" ? v.toFixed(0) : v.toFixed(1)) + " " + unit;
               }
-              v = v / 1024.0;
+              v = v / 1000.0;
             }
             return String(v);
           }
