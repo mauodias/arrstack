@@ -44,5 +44,22 @@ EOF
 systemctl daemon-reload
 systemctl enable mnt-make-rshared.service
 
+echo "Creating swap so memory pressure degrades performance instead of killing processes..."
+SWAPFILE=/swapfile
+SWAPSIZE_MB=4096
+if [ ! -f "$SWAPFILE" ]; then
+    fallocate -l "${SWAPSIZE_MB}M" "$SWAPFILE" 2>/dev/null || dd if=/dev/zero of="$SWAPFILE" bs=1M count="$SWAPSIZE_MB" status=none
+    chmod 600 "$SWAPFILE"
+    mkswap "$SWAPFILE" >/dev/null
+fi
+swapon --show=NAME --noheadings | grep -qx "$SWAPFILE" || swapon "$SWAPFILE"
+grep -q "^$SWAPFILE " /etc/fstab || echo "$SWAPFILE none swap sw 0 0" >> /etc/fstab
+
+# The FUSE mount and the download clients are throughput-bound, not
+# latency-bound, so trading a little speed for headroom is the right side of
+# the tradeoff: the kernel should exhaust swap before it starts killing.
+printf 'vm.swappiness=10\nvm.vfs_cache_pressure=50\n' > /etc/sysctl.d/99-arrstack-swap.conf
+sysctl -p /etc/sysctl.d/99-arrstack-swap.conf >/dev/null
+
 echo "Host setup complete."
 echo "Verify with: ls -la /dev/fuse /dev/net/tun"

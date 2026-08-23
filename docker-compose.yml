@@ -70,12 +70,16 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; for d in movies tv music downloads; do rclone touch hetzner_box:$d/.hetzner-mounted; done; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 32M --umask 002"]
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; for d in movies tv music downloads; do rclone touch hetzner_box:$d/.hetzner-mounted; done; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 16M --use-mmap --umask 002"]
     healthcheck:
       test: ["CMD-SHELL", "ls /data > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
+    # Bounded so the kernel OOM killer never has to choose a victim across the
+    # whole host: exceeding this kills rclone alone, and restart_policy brings
+    # it straight back. Well above the few hundred MB a healthy mount uses.
+    mem_limit: 2g
     restart: unless-stopped
 
   tailscale:
@@ -582,6 +586,30 @@ services:
             }
 
 
+        def collect_memory():
+            """/proc/meminfo inside a container without its own memory namespace
+            reports the host's figures, which is what matters here: the kernel
+            OOM killer scores against host-wide pressure, not per-container."""
+            fields = {}
+            with open("/proc/meminfo") as fh:
+                for line in fh:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        fields[parts[0].rstrip(":")] = float(parts[1]) * 1024.0
+            total = fields.get("MemTotal", 0.0)
+            avail = fields.get("MemAvailable", 0.0)
+            swap_total = fields.get("SwapTotal", 0.0)
+            swap_free = fields.get("SwapFree", 0.0)
+            out = {
+                "vps_mem.total_bytes": total,
+                "vps_mem.available_bytes": avail,
+                "vps_mem.used_bytes": total - avail,
+                "vps_swap.total_bytes": swap_total,
+                "vps_swap.used_bytes": swap_total - swap_free,
+            }
+            return out
+
+
         def collect_hetzner():
             if not HETZNER_API_TOKEN:
                 raise RuntimeError("HETZNER_API_TOKEN is not set")
@@ -726,6 +754,7 @@ services:
 
         COLLECTORS = (
             ("disk", collect_disk),
+            ("memory", collect_memory),
             ("hetzner", collect_hetzner),
             ("qbittorrent", collect_qbittorrent),
             ("lidarr", collect_lidarr),
@@ -1076,6 +1105,10 @@ services:
                 lib = series_for(conn, "lidarr.size_on_disk_bytes", since)
                 active = series_for(conn, "qbt.torrents.downloading", since)
                 queued = series_for(conn, "qbt.torrents.queuedDL", since)
+                mem_total = series_for(conn, "vps_mem.total_bytes", since)
+                mem_used = series_for(conn, "vps_mem.used_bytes", since)
+                swap_total = series_for(conn, "vps_swap.total_bytes", since)
+                swap_used = series_for(conn, "vps_swap.used_bytes", since)
                 slskd_connected = series_for(conn, "slskd.connected", since)
                 slskd_dl_active = series_for(conn, "slskd.downloads.active", since)
                 slskd_dl_queued = series_for(conn, "slskd.downloads.queued", since)
@@ -1117,6 +1150,10 @@ services:
                 cards = [
                     card("VPS disk used", "partition holding qBittorrent's incomplete path",
                          [("Used", SERIES_3, ratio_series(disk_used, disk_total))], "pct"),
+                    card("VPS memory used", "host-wide; an OOM kill is preceded by this pinning high",
+                         [("Used", SERIES_2, ratio_series(mem_used, mem_total))], "pct"),
+                    card("VPS swap used", "headroom before the kernel starts killing processes",
+                         [("Used", SERIES_4, swap_used), ("Total", SERIES_3, swap_total)], "bytes"),
                     card("Hetzner Storage Box used", "remote media library",
                          [("Used", SERIES_4, ratio_series(box_used, box_total))], "pct"),
                     card("qBittorrent transfer rate", "global session speed",
@@ -1182,6 +1219,10 @@ services:
 
 
         SUMMARY_METRICS = (
+            "vps_mem.used_bytes",
+            "vps_mem.available_bytes",
+            "vps_swap.used_bytes",
+            "vps_swap.total_bytes",
             "slskd.connected",
             "slskd.downloads.active",
             "slskd.downloads.queued",
