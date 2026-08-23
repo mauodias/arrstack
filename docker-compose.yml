@@ -474,6 +474,8 @@ services:
       - QBT_PASSWORD=${QBT_PASSWORD}
       - SLSKD_URL=http://172.28.0.10:5030
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      - SEERR_URL=http://localhost:5055
+      - SEERR_API_KEY=${HOMEPAGE_VAR_SEERR_KEY}
     volumes:
       # Not :ro — the collector keeps this database in WAL mode, and even a
       # read-only SQLite connection has to map the -shm file, which needs a
