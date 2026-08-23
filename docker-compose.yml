@@ -492,6 +492,10 @@ services:
       - QBT_PASSWORD=${QBT_PASSWORD}
       - LIDARR_URL=http://localhost:8686
       - LIDARR_API_KEY=${LIDARR_API_KEY}
+      - RADARR_URL=http://localhost:7878
+      - RADARR_API_KEY=${HOMEPAGE_VAR_RADARR_KEY}
+      - SONARR_URL=http://localhost:8989
+      - SONARR_API_KEY=${HOMEPAGE_VAR_SONARR_KEY}
       - HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
       - SLSKD_URL=http://172.28.0.10:5030
       - SLSKD_API_KEY=${SLSKD_API_KEY}
@@ -531,6 +535,10 @@ services:
         QBT_PASSWORD = os.environ.get("QBT_PASSWORD", "")
         LIDARR_URL = os.environ.get("LIDARR_URL", "http://localhost:8686").rstrip("/")
         LIDARR_API_KEY = os.environ.get("LIDARR_API_KEY", "")
+        RADARR_URL = os.environ.get("RADARR_URL", "http://localhost:7878").rstrip("/")
+        RADARR_API_KEY = os.environ.get("RADARR_API_KEY", "")
+        SONARR_URL = os.environ.get("SONARR_URL", "http://localhost:8989").rstrip("/")
+        SONARR_API_KEY = os.environ.get("SONARR_API_KEY", "")
         HETZNER_API_TOKEN = os.environ.get("HETZNER_API_TOKEN", "")
         SLSKD_URL = os.environ.get("SLSKD_URL", "http://172.28.0.10:5030").rstrip("/")
         SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
@@ -540,6 +548,11 @@ services:
             "downloading", "stalledDL", "queuedDL", "uploading", "stalledUP",
             "queuedUP", "pausedDL", "pausedUP", "stoppedDL", "stoppedUP",
             "checkingDL", "checkingUP", "error", "missingFiles", "metaDL",
+        )
+
+        TORRENT_SEEDING_STATES = (
+            "uploading", "stalledUP", "queuedUP", "pausedUP", "stoppedUP",
+            "forcedUP", "checkingUP",
         )
         
         
@@ -610,6 +623,36 @@ services:
             return out
         
         
+        _PREV_CPU = None
+
+
+        def collect_cpu():
+            """/proc/stat and /proc/loadavg inside a container without its own PID
+            namespace report host-wide figures, same as /proc/meminfo above."""
+            global _PREV_CPU
+            with open("/proc/stat") as fh:
+                for line in fh:
+                    if line.startswith("cpu "):
+                        fields = [float(x) for x in line.split()[1:]]
+                        break
+                else:
+                    raise RuntimeError("no cpu line in /proc/stat")
+            idle = fields[3] + fields[4] if len(fields) > 4 else fields[3]
+            total = sum(fields)
+            out = {}
+            if _PREV_CPU is not None:
+                prev_idle, prev_total = _PREV_CPU
+                d_total = total - prev_total
+                d_idle = idle - prev_idle
+                if d_total > 0:
+                    out["vps_cpu.percent"] = max(0.0, min(100.0, (d_total - d_idle) * 100.0 / d_total))
+            _PREV_CPU = (idle, total)
+            with open("/proc/loadavg") as fh:
+                load1 = float(fh.read().split()[0])
+            out["vps_cpu.load1"] = load1
+            return out
+
+
         def collect_hetzner():
             if not HETZNER_API_TOKEN:
                 raise RuntimeError("HETZNER_API_TOKEN is not set")
@@ -658,11 +701,23 @@ services:
                 "qbt.torrents_total": float(len(torrents)),
             }
             counts = {state: 0 for state in TORRENT_STATES}
+            downloads_bytes = 0.0
+            seeding_bytes = 0.0
+            in_progress_bytes = 0.0
             for t in torrents:
                 state = t.get("state", "unknown")
                 counts[state] = counts.get(state, 0) + 1
+                completed = float(t.get("completed") or 0)
+                downloads_bytes += completed
+                if state in TORRENT_SEEDING_STATES:
+                    seeding_bytes += completed
+                else:
+                    in_progress_bytes += completed
             for state, n in counts.items():
                 out["qbt.torrents." + state] = float(n)
+            out["qbt.downloads_bytes"] = downloads_bytes
+            out["qbt.seeding_bytes"] = seeding_bytes
+            out["qbt.in_progress_bytes"] = in_progress_bytes
             return out
         
         
@@ -687,6 +742,35 @@ services:
             }
         
         
+        def collect_radarr():
+            if not RADARR_API_KEY:
+                raise RuntimeError("RADARR_API_KEY is not set")
+            headers = {"X-Api-Key": RADARR_API_KEY}
+            movies = http_json(RADARR_URL + "/api/v3/movie", headers=headers)
+            size = 0.0
+            for m in movies:
+                size += float(m.get("sizeOnDisk") or 0)
+            return {
+                "radarr.size_on_disk_bytes": size,
+                "radarr.movie_count": float(len(movies)),
+            }
+
+
+        def collect_sonarr():
+            if not SONARR_API_KEY:
+                raise RuntimeError("SONARR_API_KEY is not set")
+            headers = {"X-Api-Key": SONARR_API_KEY}
+            series = http_json(SONARR_URL + "/api/v3/series", headers=headers)
+            size = 0.0
+            for s in series:
+                stats = s.get("statistics") or {}
+                size += float(stats.get("sizeOnDisk") or 0)
+            return {
+                "sonarr.size_on_disk_bytes": size,
+                "sonarr.series_count": float(len(series)),
+            }
+
+
         def _slskd_transfer_files(payload):
             files = []
             for user in payload:
@@ -755,9 +839,12 @@ services:
         COLLECTORS = (
             ("disk", collect_disk),
             ("memory", collect_memory),
+            ("cpu", collect_cpu),
             ("hetzner", collect_hetzner),
             ("qbittorrent", collect_qbittorrent),
             ("lidarr", collect_lidarr),
+            ("radarr", collect_radarr),
+            ("sonarr", collect_sonarr),
             ("slskd", collect_slskd),
         )
         
@@ -1076,6 +1163,7 @@ services:
         SERIES_2 = "#d95926"
         SERIES_3 = "#199e70"
         SERIES_4 = "#c98500"
+        SERIES_5 = "#8a63d1"
         
         CSS = """
         :root {
@@ -1107,6 +1195,10 @@ services:
                       letter-spacing: .06em; }
         .tile-value { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
         .tile-note { font-size: 11px; color: var(--text-secondary); }
+        .group { margin-bottom: 14px; }
+        .group-title { font-size: 11px; font-weight: 600; color: var(--text-muted);
+                        text-transform: uppercase; letter-spacing: .08em;
+                        margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
         .grid-cards { display: grid; gap: 10px;
                       grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
         /* Grid and flex items default to min-width:auto, which floors them at the
@@ -1423,6 +1515,13 @@ services:
                 slskd_success_rate = series_for(conn, "slskd.downloads.success_rate", since)
                 slskd_succeeded = series_for(conn, "slskd.downloads.succeeded", since)
                 slskd_errored = series_for(conn, "slskd.downloads.errored", since)
+                cpu_pct = series_for(conn, "vps_cpu.percent", since)
+                cpu_load1 = series_for(conn, "vps_cpu.load1", since)
+                radarr_size = series_for(conn, "radarr.size_on_disk_bytes", since)
+                sonarr_size = series_for(conn, "sonarr.size_on_disk_bytes", since)
+                downloads_bytes = series_for(conn, "qbt.downloads_bytes", since)
+                seeding_bytes = series_for(conn, "qbt.seeding_bytes", since)
+                in_progress_bytes = series_for(conn, "qbt.in_progress_bytes", since)
         
                 tiles = []
                 row = latest(conn, "vps_disk.used_bytes")
@@ -1454,33 +1553,55 @@ services:
                 if row:
                     tiles.append(tile("Soulseek success", fmt_pct(row[1]), "of completed downloads"))
         
-                cards = [
-                    card("VPS disk used", "partition holding qBittorrent's incomplete path",
-                         [("Used", SERIES_3, ratio_series(disk_used, disk_total))], "pct"),
-                    card("VPS memory used", "host-wide; an OOM kill is preceded by this pinning high",
-                         [("Used", SERIES_2, ratio_series(mem_used, mem_total))], "pct"),
-                    card("VPS swap used", "headroom before the kernel starts killing processes",
-                         [("Used", SERIES_4, swap_used), ("Total", SERIES_3, swap_total)], "bytes"),
-                    card("Hetzner Storage Box used", "remote media library",
-                         [("Used", SERIES_4, ratio_series(box_used, box_total))], "pct"),
-                    card("qBittorrent transfer rate", "global session speed",
-                         [("Download", SERIES_1, dl), ("Upload", SERIES_2, ul)], "bps"),
-                    card("Torrents by state", "counts from torrents/info",
-                         [("Downloading", SERIES_1, active), ("Queued", SERIES_2, queued)], "count"),
-                    card("Lidarr backlog", "wanted-missing and queue",
-                         [("Wanted missing", SERIES_1, missing), ("Queue", SERIES_2, queue)], "count"),
-                    card("Music library size", "sum of artist sizeOnDisk",
-                         [("On disk", SERIES_3, lib)], "bytes", zero_based=False),
-                    card("Soulseek transfer rate", "in-progress download speed",
-                         [("Download", SERIES_1, slskd_dl_speed)], "bps"),
-                    card("Soulseek downloads by state", "active and queued files",
-                         [("Active", SERIES_1, slskd_dl_active), ("Queued", SERIES_2, slskd_dl_queued)], "count"),
-                    card("Soulseek success rate", "succeeded &divide; all completed downloads",
-                         [("Success rate", SERIES_3, slskd_success_rate)], "pct", zero_based=False),
-                    card("Soulseek outcomes (cumulative)", "running totals since slskd started",
-                         [("Succeeded", SERIES_3, slskd_succeeded), ("Errored", SERIES_2, slskd_errored)], "count"),
-                    card("Soulseek connection", "1 = logged in to the Soulseek network",
-                         [("Connected", SERIES_4, slskd_connected)], "count"),
+                groups = [
+                    ("Host", [
+                        card("VPS CPU used", "host-wide utilisation",
+                             [("Used", SERIES_1, cpu_pct)], "pct"),
+                        card("VPS load average", "1-minute load average",
+                             [("Load", SERIES_2, cpu_load1)], "count", zero_based=False),
+                        card("VPS memory used", "host-wide; an OOM kill is preceded by this pinning high",
+                             [("Used", SERIES_2, ratio_series(mem_used, mem_total))], "pct"),
+                        card("VPS swap used", "headroom before the kernel starts killing processes",
+                             [("Used", SERIES_4, swap_used), ("Total", SERIES_3, swap_total)], "bytes"),
+                        card("VPS disk used", "partition holding qBittorrent's incomplete path",
+                             [("Used", SERIES_3, ratio_series(disk_used, disk_total))], "pct"),
+                    ]),
+                    ("Storage", [
+                        card("Hetzner Storage Box used", "remote media library",
+                             [("Used", SERIES_4, ratio_series(box_used, box_total))], "pct"),
+                        card("Library sizes", "size on disk by *arr service",
+                             [("Movies", SERIES_1, radarr_size), ("TV", SERIES_2, sonarr_size),
+                              ("Music", SERIES_3, lib)], "bytes", zero_based=False),
+                        card("Storage composition", "libraries plus downloads against the box total",
+                             [("Movies", SERIES_1, radarr_size), ("TV", SERIES_2, sonarr_size),
+                              ("Music", SERIES_3, lib), ("Downloads", SERIES_5, downloads_bytes),
+                              ("Box used", SERIES_4, box_used)], "bytes", zero_based=False),
+                    ]),
+                    ("Torrents", [
+                        card("qBittorrent transfer rate", "global session speed",
+                             [("Download", SERIES_1, dl), ("Upload", SERIES_2, ul)], "bps"),
+                        card("Torrents by state", "counts from torrents/info",
+                             [("Downloading", SERIES_1, active), ("Queued", SERIES_2, queued)], "count"),
+                        card("Torrent footprint", "disk used by finished vs in-progress torrents",
+                             [("Seeding", SERIES_3, seeding_bytes), ("Downloading", SERIES_2, in_progress_bytes)],
+                             "bytes", zero_based=False),
+                    ]),
+                    ("Soulseek", [
+                        card("Soulseek transfer rate", "in-progress download speed",
+                             [("Download", SERIES_1, slskd_dl_speed)], "bps"),
+                        card("Soulseek downloads by state", "active and queued files",
+                             [("Active", SERIES_1, slskd_dl_active), ("Queued", SERIES_2, slskd_dl_queued)], "count"),
+                        card("Soulseek success rate", "succeeded &divide; all completed downloads",
+                             [("Success rate", SERIES_3, slskd_success_rate)], "pct", zero_based=False),
+                        card("Soulseek outcomes (cumulative)", "running totals since slskd started",
+                             [("Succeeded", SERIES_3, slskd_succeeded), ("Errored", SERIES_2, slskd_errored)], "count"),
+                        card("Soulseek connection", "1 = logged in to the Soulseek network",
+                             [("Connected", SERIES_4, slskd_connected)], "count"),
+                    ]),
+                    ("Library", [
+                        card("Lidarr backlog", "wanted-missing and queue",
+                             [("Wanted missing", SERIES_1, missing), ("Queue", SERIES_2, queue)], "count"),
+                    ]),
                 ]
         
                 status = []
@@ -1508,19 +1629,25 @@ services:
                 % (esc(n), cls, esc(s), esc(t))
                 for n, s, t, cls in status
             )
+            groups_html = "".join(
+                '<div class="group"><p class="group-title">%s</p>'
+                '<div class="grid-cards">%s</div></div>'
+                % (esc(name), "".join(group_cards))
+                for name, group_cards in groups
+            )
             return (
                 "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
                 "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
                 "<title>arrstack metrics</title><style>%s</style></head><body>"
                 "<header><h1>arrstack metrics</h1><nav class=\"ranges\">%s</nav></header>"
-                "<div class=\"tiles\">%s</div><div class=\"grid-cards\">%s</div>"
+                "<div class=\"tiles\">%s</div>%s"
                 "<details><summary>Collector status</summary>"
                 "<table><thead><tr><th>Source</th><th>State</th><th>Last sample</th></tr></thead>"
                 "<tbody>%s</tbody></table></details>"
                 "<footer>%s samples stored &middot; collected every %d min &middot; rendered %s</footer>"
                 "<script>%s</script>"
                 "</body></html>"
-                % (CSS, ranges_html, "".join(tiles), "".join(cards), table_rows,
+                % (CSS, ranges_html, "".join(tiles), groups_html, table_rows,
                    total_samples, INTERVAL // 60,
                    time.strftime("%d %b %H:%M", time.localtime()),
                    SCRIPT_JS)
@@ -1528,6 +1655,13 @@ services:
         
         
         SUMMARY_METRICS = (
+            "vps_cpu.percent",
+            "vps_cpu.load1",
+            "radarr.size_on_disk_bytes",
+            "sonarr.size_on_disk_bytes",
+            "qbt.downloads_bytes",
+            "qbt.seeding_bytes",
+            "qbt.in_progress_bytes",
             "vps_mem.used_bytes",
             "vps_mem.available_bytes",
             "vps_swap.used_bytes",

@@ -6,12 +6,13 @@
  * this independent of Homepage's internal markup, which the iframe widget's
  * own generated class names are not.
  *
- * 70rem clears the metrics page at the width it gets as a single-column
- * group: its cards reflow at minmax(290px, 1fr), landing the 8 stat tiles
- * and 13 charts in around four rows on a laptop-width dashboard. A much
- * narrower browser window reflows to fewer columns, more rows, and will
- * still scroll internally.
+ * 150rem clears the metrics page at the width it gets as a single-column
+ * group: its cards reflow at minmax(290px, 1fr) within five labelled
+ * sections (Host, Storage, Torrents, Soulseek, Library), landing the 8
+ * stat tiles and 17 charts in around eleven rows on a laptop-width
+ * dashboard. A much narrower browser window reflows to fewer columns,
+ * more rows, and will still scroll internally.
  */
 iframe[src*=":8099"] {
-  height: 70rem !important;
+  height: 150rem !important;
 }
