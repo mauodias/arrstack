@@ -11,6 +11,11 @@ config/homepage/*
 # Exception: soularr's config.ini template is a human-authored, secret-free
 # placeholder committed to the repo; bootstrap fetches it and substitutes
 # real API keys from the environment to produce the runtime config.ini.
+# Exception: alert thresholds are human-authored infrastructure, fetched from
+# GitHub by bootstrap/init.sh the same way the Homepage config is.
+!config/alerts/
+config/alerts/*
+!config/alerts/rules.toml
 !config/soularr/
 config/soularr/*
 !config/soularr/config.ini.template

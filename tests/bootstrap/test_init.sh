@@ -23,27 +23,31 @@ REAL_GID="$(id -g)"
 # copies a local fixture into place, exercising init.sh's real logic (URL
 # used, destination path, ordering relative to `mkdir -p`) without any
 # network access. Every test below runs with this shim on PATH and with
-# HOMEPAGE_CONFIG_BASE_URL / SOULARR_CONFIG_TEMPLATE_URL pointed at fixture URLs.
+# HOMEPAGE_CONFIG_BASE_URL / SOULARR_CONFIG_TEMPLATE_URL / ALERTS_RULES_URL
+# pointed at fixture URLs.
 printf -- '- Test Group:\n    - Test Service:\n        href: http://example.test\n' > "$FIXTURE_DIR/services.yaml"
 printf -- 'title: test\ntheme: dark\n' > "$FIXTURE_DIR/settings.yaml"
 printf -- '- datetime:\n    text_size: xl\n' > "$FIXTURE_DIR/widgets.yaml"
 printf -- 'iframe[src*=":8099"] {\n  height: 34rem !important;\n}\n' > "$FIXTURE_DIR/custom.css"
+printf -- '[[rule]]\nmetric = "m"\nname = "n"\ndirection = "above"\nerror = 1\n' > "$FIXTURE_DIR/rules.toml"
 FAKE_BASE_URL="https://example.test/homepage"
 HOMEPAGE_FILES="services.yaml settings.yaml widgets.yaml custom.css"
 
 printf -- '[Lidarr]\napi_key = __LIDARR_API_KEY__\nhost_url = http://127.0.0.1:8686\ndownload_dir = /downloads\n\n[Slskd]\napi_key = __SLSKD_API_KEY__\nhost_url = http://127.0.0.1:5030\nurl_base = /\ndownload_dir = /downloads\ndelete_searches = False\n' > "$FIXTURE_DIR/config.ini.template"
+FAKE_ALERTS_URL="https://example.test/alerts/rules.toml"
 FAKE_SOULARR_URL="https://example.test/config.ini.template"
 
 # Fake wget for testing: init.sh always calls us as "-qO <dest> <url>".
-# Dispatch by URL so every fetch (the three Homepage config files and
-# soularr's config.ini.template) is served by this one shim, and log each
-# call.
+# Dispatch by URL so every fetch (the Homepage config files, soularr's
+# config.ini.template and the alert rules) is served by this one shim, and
+# log each call.
 cat > "$FAKE_BIN_DIR/wget" <<EOF
 #!/bin/sh
 echo "\$@" >> "$FIXTURE_DIR/wget.calls"
 case "\$3" in
     "$FAKE_BASE_URL"/*) cp "$FIXTURE_DIR/\${3##*/}" "\$2" ;;
     "$FAKE_SOULARR_URL") cp "$FIXTURE_DIR/config.ini.template" "\$2" ;;
+    "$FAKE_ALERTS_URL") cp "$FIXTURE_DIR/rules.toml" "\$2" ;;
     *) exit 1 ;;
 esac
 EOF
@@ -54,7 +58,7 @@ export PATH
 
 echo "Test 1: fails when both Hetzner vars are unset"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     env -u HETZNER_STORAGEBOX_USER -u HETZNER_STORAGEBOX_PASS_OBSCURED \
     sh "$INIT_SCRIPT" 2>/dev/null; then
     fail "expected non-zero exit when both Hetzner vars are unset"
@@ -62,7 +66,7 @@ fi
 
 echo "Test 2: fails when only one Hetzner var is set"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     env -u HETZNER_STORAGEBOX_PASS_OBSCURED \
     sh "$INIT_SCRIPT" 2>/dev/null; then
@@ -71,7 +75,7 @@ fi
 
 echo "Test 2b: fails when both LIDARR_API_KEY and SLSKD_API_KEY are unset"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
     env -u LIDARR_API_KEY -u SLSKD_API_KEY \
@@ -81,7 +85,7 @@ fi
 
 echo "Test 2c: fails when only LIDARR_API_KEY is set"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
     LIDARR_API_KEY="lidarrkey" \
@@ -92,7 +96,7 @@ fi
 
 echo "Test 2d: fails when only SLSKD_API_KEY is set"
 if WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
     SLSKD_API_KEY="slskdkey" \
@@ -103,7 +107,7 @@ fi
 
 echo "Test 3: succeeds and creates the directory tree when all required vars are set"
 WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
     LIDARR_API_KEY="reallidarrkey123" \
@@ -119,7 +123,7 @@ WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
 
 echo "Test 4: idempotent (second run also succeeds cleanly)"
 WORKSPACE="$WORKDIR" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" \
-    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     HETZNER_STORAGEBOX_USER="someuser" \
     HETZNER_STORAGEBOX_PASS_OBSCURED="obscuredvalue" \
     LIDARR_API_KEY="reallidarrkey123" \
@@ -138,6 +142,7 @@ WORKSPACE="$WORKDIR2" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GID" 
     SLSKD_API_KEY="realslskdkey456" \
     HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" \
     SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     sh "$INIT_SCRIPT" || fail "expected success when fetching Homepage config via the fake wget shim"
 
 for f in $HOMEPAGE_FILES; do
@@ -175,6 +180,7 @@ if WORKSPACE="$WORKDIR3" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GI
     SLSKD_API_KEY="realslskdkey456" \
     HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" \
     SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     sh "$INIT_SCRIPT" 2>/dev/null; then
     fail "expected non-zero exit when a Homepage config fetch fails"
 fi
@@ -199,6 +205,7 @@ if WORKSPACE="$WORKDIR4" MEDIA_ROOT="$MEDIA_DIR" PUID="$REAL_UID" PGID="$REAL_GI
     SLSKD_API_KEY="realslskdkey456" \
     HOMEPAGE_CONFIG_BASE_URL="$FAKE_BASE_URL" \
     SOULARR_CONFIG_TEMPLATE_URL="$FAKE_SOULARR_URL" \
+    ALERTS_RULES_URL="$FAKE_ALERTS_URL" \
     sh "$INIT_SCRIPT" 2>/dev/null; then
     fail "expected non-zero exit when the config.ini.template fetch fails"
 fi

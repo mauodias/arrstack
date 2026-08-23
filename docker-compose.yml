@@ -440,6 +440,59 @@ services:
     healthcheck: *mount-check
     restart: unless-stopped
 
+  # Reads the metrics database read-only rather than calling the metrics HTTP
+  # API, so evaluation survives a metrics outage — which is what makes the
+  # staleness rule able to fire at all.
+  alerter:
+    image: python:3.12-alpine
+    container_name: arr-alerter
+    network_mode: service:tailscale
+    working_dir: /app
+    environment:
+      - TZ=${TZ}
+      - ALERTER_PORT=8100
+      - ALERTER_INTERVAL=300
+      - METRICS_DB=/metrics/metrics.db
+      - ALERTER_DB=/data/alerts.db
+      - ALERTER_RULES=/rules/rules.toml
+      - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+      - NTFY_TOPIC=${NTFY_TOPIC}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - RESEND_FROM=${RESEND_FROM}
+      - RESEND_TO=${RESEND_TO}
+      - DIGEST_HOUR=${DIGEST_HOUR:-8}
+    volumes:
+      - ./data/metrics:/metrics:ro
+      - ./data/alerter:/data
+      - ./config/alerts:/rules:ro
+    # Each fetch is written out rather than looped: Compose interpolates $ in
+    # command strings, so a shell variable would be substituted away.
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /app
+        && wget -qO /app/app.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/app.py
+        && wget -qO /app/rules.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/rules.py
+        && wget -qO /app/evaluate.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/evaluate.py
+        && wget -qO /app/state.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/state.py
+        && wget -qO /app/notify.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/notify.py
+        && wget -qO /app/digest.py https://raw.githubusercontent.com/mauodias/arrstack/main/alerter/digest.py
+        && exec python3 -u /app/app.py
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=5).read()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      tailscale:
+        condition: service_started
+      metrics:
+        condition: service_started
+    mem_limit: 64m
+    restart: unless-stopped
+
   homepage:
     image: ghcr.io/gethomepage/homepage:latest
     container_name: arr-homepage

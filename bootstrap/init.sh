@@ -6,7 +6,7 @@ MEDIA_ROOT="${MEDIA_ROOT:-/mnt/remote-media}"
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
-CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr bazarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage"
+CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr bazarr qbittorrent gluetun seerr lidarr slskd soularr navidrome jellyfin homepage alerts"
 
 # Homepage's dashboard config files are git-committed, human-authored
 # exceptions to the usual rule that config/* is runtime state never committed
@@ -52,6 +52,15 @@ fi
 sed "s|__LIDARR_API_KEY__|$LIDARR_API_KEY|g; s|__SLSKD_API_KEY__|$SLSKD_API_KEY|g" "$WORKSPACE/config/soularr/config.ini" > "$WORKSPACE/config/soularr/config.ini.tmp"
 mv "$WORKSPACE/config/soularr/config.ini.tmp" "$WORKSPACE/config/soularr/config.ini"
 echo "Generated config/soularr/config.ini"
+
+# Alert thresholds: human-authored, secret-free, fetched like the Homepage
+# config so operator edits reach the host on redeploy.
+ALERTS_RULES_URL="${ALERTS_RULES_URL:-https://raw.githubusercontent.com/mauodias/arrstack/main/config/alerts/rules.toml}"
+if ! wget -qO "$WORKSPACE/config/alerts/rules.toml" "$ALERTS_RULES_URL"; then
+    echo "ERROR: failed to fetch rules.toml from $ALERTS_RULES_URL" >&2
+    exit 1
+fi
+echo "Fetched config/alerts/rules.toml"
 
 mkdir -p "$WORKSPACE/data/rclone-cache"
 
