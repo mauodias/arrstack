@@ -230,6 +230,28 @@
               format: percent
               scale: 0.01
 
+    # Scanned hourly rather than every cycle: walking several thousand files
+    # over the FUSE mount is expensive, and the figure only moves on import.
+    - Old collection:
+        icon: mdi-archive-clock-outline
+        description: Legacy library awaiting import
+        widget:
+          type: customapi
+          url: http://arr-vps:8099/summary.json
+          mappings:
+            - field: old_collection.size_bytes
+              label: Size
+              format: bytes
+            - field: old_collection.folders
+              label: Folders
+              format: number
+            - field: old_collection.files
+              label: Files
+              format: number
+            - field: old_collection.scanned_at
+              label: Scanned
+              format: relativeDate
+
     # soularr: plain link, no widget — it exposes no stats API. The tile is
     # for quick access to its minimal UI, which shows the generated
     # config.ini. mdi- icon because dashboard-icons has no soularr logo.

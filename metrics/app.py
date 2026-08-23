@@ -322,6 +322,46 @@ def collect_slskd():
     return out
 
 
+OLD_COLLECTION_PATH = os.environ.get("OLD_COLLECTION_PATH", "/old-collection")
+OLD_COLLECTION_EVERY = int(os.environ.get("OLD_COLLECTION_EVERY", "3600"))
+_OLD_COLLECTION_CACHE = {"at": 0.0, "value": None}
+
+
+def collect_old_collection():
+    """Size and folder count of the legacy library still awaiting import.
+
+    Walking several thousand files over the FUSE mount is far too expensive to
+    repeat every cycle, and the figure only moves when an import runs, so the
+    result is cached and refreshed on its own slower schedule.
+    """
+    now = time.time()
+    cached = _OLD_COLLECTION_CACHE["value"]
+    if cached is not None and now - _OLD_COLLECTION_CACHE["at"] < OLD_COLLECTION_EVERY:
+        return dict(cached)
+    total = 0
+    files = 0
+    folders = 0
+    for entry in os.scandir(OLD_COLLECTION_PATH):
+        if entry.is_dir(follow_symlinks=False):
+            folders += 1
+    for root, _dirs, names in os.walk(OLD_COLLECTION_PATH):
+        for name in names:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+                files += 1
+            except OSError:
+                continue
+    out = {
+        "old_collection.size_bytes": float(total),
+        "old_collection.folders": float(folders),
+        "old_collection.files": float(files),
+        "old_collection.scanned_at": float(int(now)),
+    }
+    _OLD_COLLECTION_CACHE["at"] = now
+    _OLD_COLLECTION_CACHE["value"] = out
+    return dict(out)
+
+
 COLLECTORS = (
     ("disk", collect_disk),
     ("memory", collect_memory),
@@ -332,6 +372,7 @@ COLLECTORS = (
     ("radarr", collect_radarr),
     ("sonarr", collect_sonarr),
     ("slskd", collect_slskd),
+    ("old_collection", collect_old_collection),
 )
 
 
@@ -1141,6 +1182,10 @@ def render_page(range_key):
 
 
 SUMMARY_METRICS = (
+    "old_collection.size_bytes",
+    "old_collection.folders",
+    "old_collection.files",
+    "old_collection.scanned_at",
     "vps_cpu.percent",
     "vps_cpu.load1",
     "radarr.size_on_disk_bytes",

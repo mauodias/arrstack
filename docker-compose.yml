@@ -560,6 +560,8 @@ services:
       - HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
       - SLSKD_URL=http://172.28.0.10:5030
       - SLSKD_API_KEY=${SLSKD_API_KEY}
+      - OLD_COLLECTION_PATH=/old-collection
+      - OLD_COLLECTION_EVERY=3600
     volumes:
       # History has to outlive the down/up that every deploy performs, so the
       # database lives on a bind mount rather than in the container.
@@ -568,6 +570,8 @@ services:
       # partition holding in-progress downloads. Same mount the homepage
       # service uses for its disk widget.
       - ./config/qbittorrent:/hostdisk/qbittorrent:ro
+      # Read-only view of the legacy library still awaiting import into Lidarr.
+      - /mnt/remote-media/downloads/old-collection/library:/old-collection:ro,rslave
     command:
       - sh
       - -c
