@@ -20,15 +20,19 @@
     units: metric
     cache: 15
 
-# Deliberately no `disk:` here — the only storage figure worth surfacing is
-# Hetzner Storage Box capacity, which is the customapi widget in
-# services.yaml. A local-disk reading would report the VPS's own partition
-# and read as a second, contradictory "storage" number on the same page.
+# Two different storage figures, each answering a different question:
+#   - Hetzner Storage Box capacity -> the customapi widget in services.yaml,
+#     i.e. how much of the 1 TB library allowance is left.
+#   - `disk:` below -> the VPS partition holding qBittorrent's temp path
+#     (/config/incomplete). In-progress downloads land here and only move to
+#     the box once complete, so a climbing figure means transfers are piling
+#     up locally instead of draining to remote storage.
 - resources:
     label: VPS
     cpu: true
     memory: true
     uptime: true
+    disk: /hostdisk/qbittorrent
 
 - search:
     provider: duckduckgo

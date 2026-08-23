@@ -455,6 +455,9 @@ services:
     volumes:
       - ./config/homepage:/app/config
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Read-only view of qBittorrent's temp path so the disk widget can
+      # report the VPS partition that holds in-progress downloads.
+      - ./config/qbittorrent:/hostdisk/qbittorrent:ro
     depends_on:
       tailscale:
         condition: service_started
