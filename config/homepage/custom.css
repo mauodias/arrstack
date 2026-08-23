@@ -1,0 +1,16 @@
+/* Homepage loads this automatically from its config directory.
+ *
+ * The iframe widget sizes itself with Tailwind height classes, and Homepage
+ * ships a precompiled Tailwind bundle — arbitrary values such as h-[38rem]
+ * are not in that bundle and silently do nothing. Overriding by src keeps
+ * this independent of Homepage's internal markup, which the iframe widget's
+ * own generated class names are not.
+ *
+ * 38rem clears the metrics page at the width it gets as a single-column
+ * group: its cards reflow at minmax(290px, 1fr), landing six charts in two
+ * rows on a laptop-width dashboard. A much narrower browser window reflows
+ * to fewer columns, more rows, and will still scroll internally.
+ */
+iframe[src*=":8099"] {
+  height: 38rem !important;
+}

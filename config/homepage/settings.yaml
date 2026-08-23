@@ -23,27 +23,31 @@ target: _blank
 # Group order, icons and per-group column counts. Group names here MUST match
 # the group names in services.yaml exactly, or the group falls back to the
 # default layout and sorts alphabetically.
+#
+# `tab` splits groups across tabs, ordered as listed here, so Stats leading
+# the block makes it the tab that opens by default. Any tab is addressable
+# directly as #<lowercased-uri-encoded-tab-name>.
 layout:
+  Stats:
+    tab: Stats
+    icon: mdi-chart-box-outline
+    style: row
+    columns: 1
   Watch & Request:
+    tab: Watch
     icon: mdi-play-circle-outline
     style: row
     columns: 3
-  Movies & TV:
-    icon: mdi-movie-open-outline
+  Libraries:
+    tab: Libraries
+    icon: mdi-bookshelf
     style: row
-    columns: 3
-  Music:
-    icon: mdi-music-note
-    style: row
-    columns: 3
+    columns: 4
   Acquisition:
+    tab: Acquisition
     icon: mdi-download-outline
     style: row
-    columns: 2
-  Storage:
-    icon: mdi-database-outline
-    style: row
-    columns: 1
+    columns: 3
 
 quicklaunch:
   searchDescriptions: true

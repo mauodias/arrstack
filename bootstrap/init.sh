@@ -14,7 +14,7 @@ CONFIG_DIRS="rclone tailscale prowlarr radarr sonarr bazarr qbittorrent gluetun 
 # docker-compose.yml uses to fetch this very script) so operator edits
 # actually reach the host on redeploy.
 HOMEPAGE_CONFIG_BASE_URL="${HOMEPAGE_CONFIG_BASE_URL:-https://raw.githubusercontent.com/mauodias/arrstack/main/config/homepage}"
-HOMEPAGE_CONFIG_FILES="services.yaml settings.yaml widgets.yaml"
+HOMEPAGE_CONFIG_FILES="services.yaml settings.yaml widgets.yaml custom.css"
 
 # soularr has no web UI, so its config.ini (with real API keys) can't be
 # hand-authored through a UI and can't be committed as-is (public repo). The

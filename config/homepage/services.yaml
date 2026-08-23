@@ -3,11 +3,13 @@
 # Unlike other config/* directories in this repo (which are runtime state
 # managed by each app's own UI/database and are never committed), this file
 # is human-authored infrastructure for the Homepage dashboard and IS
-# committed to git — as are settings.yaml (layout/theme) and widgets.yaml
-# (the info-widget header row).
+# committed to git — as are settings.yaml (layout/theme), widgets.yaml
+# (the info-widget header row) and custom.css.
 #
 # Group names below MUST match the `layout:` keys in settings.yaml exactly,
 # or the group loses its icon/column settings and sorts alphabetically.
+# settings.yaml also assigns each group to a tab; Stats leads that list and
+# is therefore the tab shown on load.
 #
 # Most apps are reachable via Tailscale at http://arr-vps:<port>.
 # qBittorrent is the exception: it lives in gluetun's network namespace and
@@ -16,6 +18,56 @@
 # Widget API keys are injected via {{HOMEPAGE_VAR_XXX}} placeholders, which
 # Homepage substitutes at runtime from HOMEPAGE_VAR_* environment variables
 # (see docker-compose.yml's homepage service and .env.example).
+
+- Stats:
+    # Queries Hetzner's own Cloud API directly, with a read-only API token.
+    # rclone can't provide this data: Hetzner's WebDAV endpoint never returns
+    # quota properties (RFC 4331), so `rclone about` always returns an empty
+    # object for this account. Hetzner's account only has one Storage Box,
+    # so `storage_boxes.0` is safe; a second box would need targeting by id
+    # instead of index 0. mdi- icon because dashboard-icons has no Hetzner
+    # Storage Box logo.
+    - Hetzner Storage Box:
+        href: https://console.hetzner.com/projects
+        icon: mdi-harddisk
+        # Sourced from HETZNER_STORAGEBOX_USER via HOMEPAGE_VAR templating
+        # (docker-compose.yml) — the same mechanism used for widget API keys
+        # works in any field of this file, not just inside widget: blocks.
+        # Kept out of the widget's own `mappings`: it's a subtitle, not tile
+        # data, and doesn't need a live API call since it's static per-account.
+        description: "User ID: {{HOMEPAGE_VAR_HETZNER_STORAGEBOX_USER}}"
+        widget:
+          type: customapi
+          url: https://api.hetzner.com/v1/storage_boxes
+          method: GET
+          headers:
+            Authorization: "Bearer {{HOMEPAGE_VAR_HETZNER_API_TOKEN}}"
+          mappings:
+            - field: storage_boxes.0.stats.size
+              label: Used
+              format: bytes
+            - field: storage_boxes.0.storage_box_type.size
+              label: Total
+              format: bytes
+
+    # Iframe widget, so the browser fetches this URL itself — Homepage does
+    # NOT proxy iframe widgets. That is why the metrics container shares
+    # tailscale's network namespace: the src has to resolve from the laptop
+    # exactly like http://arr-vps:3000 does, not just from inside Docker.
+    #
+    # `classes` is the stock ceiling (h-96); custom.css overrides the height
+    # past what Homepage's precompiled Tailwind bundle can express.
+    - Stack metrics:
+        href: http://arr-vps:8099
+        icon: mdi-chart-line
+        description: Disk, transfer and backlog history
+        widget:
+          type: iframe
+          name: metrics
+          src: http://arr-vps:8099/?range=24h
+          classes: h-96
+          referrerPolicy: same-origin
+          refreshInterval: 300000
 
 - Watch & Request:
     - Jellyfin:
@@ -47,7 +99,7 @@
           url: http://arr-vps:5055
           key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
 
-- Movies & TV:
+- Libraries:
     - Radarr:
         href: http://arr-vps:7878
         icon: radarr.png
@@ -66,16 +118,6 @@
           url: http://arr-vps:8989
           key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
 
-    - Bazarr:
-        href: http://arr-vps:6767
-        icon: bazarr.png
-        description: Subtitles
-        widget:
-          type: bazarr
-          url: http://arr-vps:6767
-          key: "{{HOMEPAGE_VAR_BAZARR_KEY}}"
-
-- Music:
     - Lidarr:
         href: http://arr-vps:8686
         icon: lidarr.png
@@ -85,25 +127,14 @@
           url: http://arr-vps:8686
           key: "{{HOMEPAGE_VAR_LIDARR_KEY}}"
 
-    # Reached at gluetun's fixed vpn_net address rather than arr-vps: slskd
-    # shares gluetun's network namespace for VPN isolation, so it is not
-    # bound to the Tailscale hostname.
-    - slskd:
-        href: http://172.28.0.10:5030
-        icon: slskd.png
-        description: Soulseek P2P, VPN-isolated via gluetun
+    - Bazarr:
+        href: http://arr-vps:6767
+        icon: bazarr.png
+        description: Subtitles
         widget:
-          type: slskd
-          url: http://172.28.0.10:5030
-          key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
-
-    # soularr: plain link, no widget — it exposes no stats API. The tile is
-    # for quick access to its minimal UI, which shows the generated
-    # config.ini. mdi- icon because dashboard-icons has no soularr logo.
-    - soularr:
-        href: http://arr-vps:8265
-        icon: mdi-transit-connection-variant
-        description: Bridges Lidarr wanted list to slskd
+          type: bazarr
+          url: http://arr-vps:6767
+          key: "{{HOMEPAGE_VAR_BAZARR_KEY}}"
 
 - Acquisition:
     - Prowlarr:
@@ -115,11 +146,9 @@
           url: http://arr-vps:9696
           key: "{{HOMEPAGE_VAR_PROWLARR_KEY}}"
 
-    # qBittorrent: plain link, no widget. Uses 172.28.0.10:8080 (gluetun's
-    # fixed IP on the vpn_net subnet route, NOT arr-vps) to keep
-    # qBittorrent/gluetun isolated for VPN safety. Widget IS possible later
-    # (v5.2+ supports API key auth, or use username/password); skipped here
-    # to avoid putting WebUI credentials in .env.
+    # qBittorrent uses 172.28.0.10:8080 (gluetun's fixed IP on the vpn_net
+    # subnet route, NOT arr-vps) to keep qBittorrent/gluetun isolated for
+    # VPN safety.
     - qBittorrent:
         href: http://172.28.0.10:8080
         icon: qbittorrent.png
@@ -158,49 +187,22 @@
               label: Shared
               format: bytes
 
-- Storage:
-    # Queries Hetzner's own Cloud API directly, with a read-only API token.
-    # rclone can't provide this data: Hetzner's WebDAV endpoint never returns
-    # quota properties (RFC 4331), so `rclone about` always returns an empty
-    # object for this account. Hetzner's account only has one Storage Box,
-    # so `storage_boxes.0` is safe; a second box would need targeting by id
-    # instead of index 0. mdi- icon because dashboard-icons has no Hetzner
-    # Storage Box logo.
-    - Hetzner Storage Box:
-        href: https://console.hetzner.com/projects
-        icon: mdi-harddisk
-        # Sourced from HETZNER_STORAGEBOX_USER via HOMEPAGE_VAR templating
-        # (docker-compose.yml) — the same mechanism used for widget API keys
-        # works in any field of this file, not just inside widget: blocks.
-        # Kept out of the widget's own `mappings`: it's a subtitle, not tile
-        # data, and doesn't need a live API call since it's static per-account.
-        description: "User ID: {{HOMEPAGE_VAR_HETZNER_STORAGEBOX_USER}}"
+    # Reached at gluetun's fixed vpn_net address rather than arr-vps: slskd
+    # shares gluetun's network namespace for VPN isolation, so it is not
+    # bound to the Tailscale hostname.
+    - slskd:
+        href: http://172.28.0.10:5030
+        icon: slskd.png
+        description: Soulseek P2P, VPN-isolated via gluetun
         widget:
-          type: customapi
-          url: https://api.hetzner.com/v1/storage_boxes
-          method: GET
-          headers:
-            Authorization: "Bearer {{HOMEPAGE_VAR_HETZNER_API_TOKEN}}"
-          mappings:
-            - field: storage_boxes.0.stats.size
-              label: Used
-              format: bytes
-            - field: storage_boxes.0.storage_box_type.size
-              label: Total
-              format: bytes
+          type: slskd
+          url: http://172.28.0.10:5030
+          key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
 
-    # Iframe widget, so the browser fetches this URL itself — Homepage does
-    # NOT proxy iframe widgets. That is why the metrics container shares
-    # tailscale's network namespace: the src has to resolve from the laptop
-    # exactly like http://arr-vps:3000 does, not just from inside Docker.
-    - Stack metrics:
-        href: http://arr-vps:8099
-        icon: mdi-chart-line
-        description: Disk, transfer and backlog history
-        widget:
-          type: iframe
-          name: metrics
-          src: http://arr-vps:8099/?range=24h
-          classes: h-96
-          referrerPolicy: same-origin
-          refreshInterval: 300000
+    # soularr: plain link, no widget — it exposes no stats API. The tile is
+    # for quick access to its minimal UI, which shows the generated
+    # config.ini. mdi- icon because dashboard-icons has no soularr logo.
+    - soularr:
+        href: http://arr-vps:8265
+        icon: mdi-transit-connection-variant
+        description: Bridges Lidarr wanted list to slskd
