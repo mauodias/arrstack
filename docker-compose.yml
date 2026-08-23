@@ -462,7 +462,10 @@ services:
       - RESEND_TO=${RESEND_TO}
       - DIGEST_HOUR=${DIGEST_HOUR:-8}
     volumes:
-      - ./data/metrics:/metrics:ro
+      # Not :ro — the collector keeps this database in WAL mode, and even a
+      # read-only SQLite connection has to map the -shm file, which needs a
+      # writable directory. The connection itself still opens with mode=ro.
+      - ./data/metrics:/metrics
       - ./data/alerter:/data
       - ./config/alerts:/rules:ro
     # Each fetch is written out rather than looped: Compose interpolates $ in
