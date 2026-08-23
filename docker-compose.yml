@@ -677,6 +677,7 @@ services:
 
             server = app.get("server") or {}
             stats = ((app.get("user") or {}).get("statistics")) or {}
+            scanning = bool((app.get("shares") or {}).get("scanning"))
 
             dl_files = _slskd_transfer_files(downloads)
             ul_files = _slskd_transfer_files(uploads)
@@ -711,9 +712,15 @@ services:
                 "slskd.uploads.active": float(len(ul_active)),
                 "slskd.uploads.speed_bps": float(sum(f.get("averageSpeed", 0) for f in ul_active)),
                 "slskd.uploads.total": float(stats.get("uploadCount", 0)),
-                "slskd.shared.files": float(stats.get("fileCount", 0)),
-                "slskd.shared.dirs": float(stats.get("directoryCount", 0)),
+                "slskd.scanning": 1.0 if scanning else 0.0,
             }
+            # user.statistics reports a share of zero files for the whole
+            # duration of a rescan, which slskd runs on every start. Omitting
+            # the sample holds the chart at its last value rather than drawing
+            # a drop to zero and back on each redeploy.
+            if not scanning:
+                out["slskd.shared.files"] = float(stats.get("fileCount", 0))
+                out["slskd.shared.dirs"] = float(stats.get("directoryCount", 0))
             return out
 
 
@@ -1188,6 +1195,7 @@ services:
             "slskd.uploads.active",
             "slskd.uploads.speed_bps",
             "slskd.uploads.total",
+            "slskd.scanning",
             "slskd.shared.files",
             "slskd.shared.dirs",
         )
