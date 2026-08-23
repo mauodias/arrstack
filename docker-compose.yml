@@ -489,6 +489,8 @@ services:
       - LIDARR_URL=http://localhost:8686
       - LIDARR_API_KEY=${LIDARR_API_KEY}
       - HETZNER_API_TOKEN=${HETZNER_API_TOKEN}
+      - SLSKD_URL=http://172.28.0.10:5030
+      - SLSKD_API_KEY=${SLSKD_API_KEY}
     volumes:
       # History has to outlive the down/up that every deploy performs, so the
       # database lives on a bind mount rather than in the container.
@@ -526,6 +528,8 @@ services:
         LIDARR_URL = os.environ.get("LIDARR_URL", "http://localhost:8686").rstrip("/")
         LIDARR_API_KEY = os.environ.get("LIDARR_API_KEY", "")
         HETZNER_API_TOKEN = os.environ.get("HETZNER_API_TOKEN", "")
+        SLSKD_URL = os.environ.get("SLSKD_URL", "http://172.28.0.10:5030").rstrip("/")
+        SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
         HTTP_TIMEOUT = 30
 
         TORRENT_STATES = (
@@ -655,11 +659,70 @@ services:
             }
 
 
+        def _slskd_transfer_files(payload):
+            files = []
+            for user in payload:
+                for directory in user.get("directories") or []:
+                    files.extend(directory.get("files") or [])
+            return files
+
+
+        def collect_slskd():
+            if not SLSKD_API_KEY:
+                raise RuntimeError("SLSKD_API_KEY is not set")
+            headers = {"X-API-Key": SLSKD_API_KEY}
+            app = http_json(SLSKD_URL + "/api/v0/application", headers=headers)
+            downloads = http_json(SLSKD_URL + "/api/v0/transfers/downloads", headers=headers)
+            uploads = http_json(SLSKD_URL + "/api/v0/transfers/uploads", headers=headers)
+
+            server = app.get("server") or {}
+            stats = ((app.get("user") or {}).get("statistics")) or {}
+
+            dl_files = _slskd_transfer_files(downloads)
+            ul_files = _slskd_transfer_files(uploads)
+
+            dl_active = [f for f in dl_files if "InProgress" in f.get("state", "")]
+            dl_queued = [f for f in dl_files if "Queued" in f.get("state", "")]
+            dl_completed = [f for f in dl_files if f.get("state", "").startswith("Completed")]
+            dl_outcomes = {"succeeded": 0, "errored": 0, "cancelled": 0, "rejected": 0, "aborted": 0}
+            for f in dl_completed:
+                state = f.get("state", "")
+                for outcome in dl_outcomes:
+                    if outcome.capitalize() in state:
+                        dl_outcomes[outcome] += 1
+                        break
+            success_rate = (
+                dl_outcomes["succeeded"] * 100.0 / len(dl_completed) if dl_completed else 0.0
+            )
+
+            ul_active = [f for f in ul_files if "InProgress" in f.get("state", "")]
+
+            out = {
+                "slskd.connected": 1.0 if server.get("isLoggedIn") else 0.0,
+                "slskd.downloads.active": float(len(dl_active)),
+                "slskd.downloads.queued": float(len(dl_queued)),
+                "slskd.downloads.speed_bps": float(sum(f.get("averageSpeed", 0) for f in dl_active)),
+                "slskd.downloads.succeeded": float(dl_outcomes["succeeded"]),
+                "slskd.downloads.errored": float(dl_outcomes["errored"]),
+                "slskd.downloads.cancelled": float(dl_outcomes["cancelled"]),
+                "slskd.downloads.rejected": float(dl_outcomes["rejected"]),
+                "slskd.downloads.aborted": float(dl_outcomes["aborted"]),
+                "slskd.downloads.success_rate": success_rate,
+                "slskd.uploads.active": float(len(ul_active)),
+                "slskd.uploads.speed_bps": float(sum(f.get("averageSpeed", 0) for f in ul_active)),
+                "slskd.uploads.total": float(stats.get("uploadCount", 0)),
+                "slskd.shared.files": float(stats.get("fileCount", 0)),
+                "slskd.shared.dirs": float(stats.get("directoryCount", 0)),
+            }
+            return out
+
+
         COLLECTORS = (
             ("disk", collect_disk),
             ("hetzner", collect_hetzner),
             ("qbittorrent", collect_qbittorrent),
             ("lidarr", collect_lidarr),
+            ("slskd", collect_slskd),
         )
 
 
@@ -1006,6 +1069,13 @@ services:
                 lib = series_for(conn, "lidarr.size_on_disk_bytes", since)
                 active = series_for(conn, "qbt.torrents.downloading", since)
                 queued = series_for(conn, "qbt.torrents.queuedDL", since)
+                slskd_connected = series_for(conn, "slskd.connected", since)
+                slskd_dl_active = series_for(conn, "slskd.downloads.active", since)
+                slskd_dl_queued = series_for(conn, "slskd.downloads.queued", since)
+                slskd_dl_speed = series_for(conn, "slskd.downloads.speed_bps", since)
+                slskd_success_rate = series_for(conn, "slskd.downloads.success_rate", since)
+                slskd_succeeded = series_for(conn, "slskd.downloads.succeeded", since)
+                slskd_errored = series_for(conn, "slskd.downloads.errored", since)
 
                 tiles = []
                 row = latest(conn, "vps_disk.used_bytes")
@@ -1030,6 +1100,12 @@ services:
                 row = latest(conn, "lidarr.size_on_disk_bytes")
                 if row:
                     tiles.append(tile("Music library", fmt_bytes(row[1]), "Lidarr on disk"))
+                row = latest(conn, "slskd.downloads.speed_bps")
+                if row:
+                    tiles.append(tile("Soulseek DL", fmt_bps(row[1]), "slskd now"))
+                row = latest(conn, "slskd.downloads.success_rate")
+                if row:
+                    tiles.append(tile("Soulseek success", fmt_pct(row[1]), "of completed downloads"))
 
                 cards = [
                     card("VPS disk used", "partition holding qBittorrent's incomplete path",
@@ -1044,6 +1120,16 @@ services:
                          [("Wanted missing", SERIES_1, missing), ("Queue", SERIES_2, queue)], "count"),
                     card("Music library size", "sum of artist sizeOnDisk",
                          [("On disk", SERIES_3, lib)], "bytes", zero_based=False),
+                    card("Soulseek transfer rate", "in-progress download speed",
+                         [("Download", SERIES_1, slskd_dl_speed)], "bps"),
+                    card("Soulseek downloads by state", "active and queued files",
+                         [("Active", SERIES_1, slskd_dl_active), ("Queued", SERIES_2, slskd_dl_queued)], "count"),
+                    card("Soulseek success rate", "succeeded &divide; all completed downloads",
+                         [("Success rate", SERIES_3, slskd_success_rate)], "pct", zero_based=False),
+                    card("Soulseek outcomes (cumulative)", "running totals since slskd started",
+                         [("Succeeded", SERIES_3, slskd_succeeded), ("Errored", SERIES_2, slskd_errored)], "count"),
+                    card("Soulseek connection", "1 = logged in to the Soulseek network",
+                         [("Connected", SERIES_4, slskd_connected)], "count"),
                 ]
 
                 status = []
@@ -1088,6 +1174,37 @@ services:
             )
 
 
+        SUMMARY_METRICS = (
+            "slskd.connected",
+            "slskd.downloads.active",
+            "slskd.downloads.queued",
+            "slskd.downloads.speed_bps",
+            "slskd.downloads.succeeded",
+            "slskd.downloads.errored",
+            "slskd.downloads.cancelled",
+            "slskd.downloads.rejected",
+            "slskd.downloads.aborted",
+            "slskd.downloads.success_rate",
+            "slskd.uploads.active",
+            "slskd.uploads.speed_bps",
+            "slskd.uploads.total",
+            "slskd.shared.files",
+            "slskd.shared.dirs",
+        )
+
+
+        def render_summary():
+            conn = db_connect()
+            try:
+                out = {}
+                for metric in SUMMARY_METRICS:
+                    row = latest(conn, metric)
+                    out[metric] = row[1] if row else None
+                return out
+            finally:
+                conn.close()
+
+
         class Handler(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
@@ -1104,6 +1221,13 @@ services:
                 parsed = urllib.parse.urlparse(self.path)
                 if parsed.path == "/healthz":
                     self._send(200, "ok", "text/plain; charset=utf-8")
+                    return
+                if parsed.path == "/summary.json":
+                    try:
+                        self._send(200, json.dumps(render_summary()), "application/json; charset=utf-8")
+                    except Exception:
+                        log("summary failed:\n" + traceback.format_exc())
+                        self._send(500, "{}", "application/json; charset=utf-8")
                     return
                 if parsed.path not in ("/", "/index.html"):
                     self._send(404, "not found", "text/plain; charset=utf-8")

@@ -199,6 +199,37 @@
           url: http://172.28.0.10:5030
           key: "{{HOMEPAGE_VAR_SLSKD_KEY}}"
 
+    # The stock slskd widget above shows only current queue/download counts.
+    # This pulls the aggregated numbers from the metrics container's own
+    # /summary.json (see docker-compose.yml's metrics service), which is the
+    # only place slskd's cumulative per-outcome totals and success rate are
+    # computed — Homepage's customapi widget can only extract fields by dot
+    # path, it cannot aggregate slskd's raw transfer list itself. Reached at
+    # arr-vps like the other customapi widget on this dashboard, unlike the
+    # `Stack metrics` iframe: customapi IS proxied server-side by Homepage,
+    # so it can resolve the Tailscale hostname from inside Docker.
+    - Soulseek activity:
+        icon: mdi-account-music
+        description: slskd aggregate download health
+        widget:
+          type: customapi
+          url: http://arr-vps:8099/summary.json
+          mappings:
+            - field: slskd.downloads.active
+              label: Active
+              format: number
+            - field: slskd.downloads.queued
+              label: Queued
+              format: number
+            - field: slskd.downloads.speed_bps
+              label: Speed
+              format: bitrate
+              scale: 8
+            - field: slskd.downloads.success_rate
+              label: Success rate
+              format: percent
+              scale: 0.01
+
     # soularr: plain link, no widget — it exposes no stats API. The tile is
     # for quick access to its minimal UI, which shows the generated
     # config.ini. mdi- icon because dashboard-icons has no soularr logo.
