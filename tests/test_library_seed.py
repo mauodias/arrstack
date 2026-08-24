@@ -143,6 +143,12 @@ class StubQbt:
     def start(self, h):
         self.calls.append(("start", h))
 
+    def stop(self, h):
+        self.calls.append(("stop", h))
+
+    def set_download_limit(self, h, limit):
+        self.calls.append(("set_download_limit", limit))
+
 
 PACK_T = {
     "hash": "abc123", "progress": 1.0, "tags": "", "category": "tv-sonarr",
@@ -202,3 +208,48 @@ def test_event_from_env_both_apps():
          "radarr_moviefile_path": "/movies/F (2019)/f.mkv"}
     assert L.event_from_env(r) == ("def", "/movies/F (2019)", "Download")
     assert L.event_from_env({}) == ("", "", "")
+
+
+def test_disable_share_limits_sends_stop_action():
+    """qBittorrent 5.2 requires shareLimitAction; it must never be a removing one."""
+    sent = {}
+
+    class Cap(L.Qbt):
+        def __init__(self):
+            pass
+
+        def _post(self, path, fields):
+            sent["path"] = path
+            sent["fields"] = fields
+
+    Cap().disable_share_limits("abc")
+    assert sent["path"] == "/torrents/setShareLimits"
+    f = sent["fields"]
+    assert f["ratioLimit"] == f["seedingTimeLimit"] == f["inactiveSeedingTimeLimit"] == -1
+    assert f["shareLimitAction"] == "Stop"
+    assert "Remove" not in str(f["shareLimitAction"])
+
+
+def test_repoint_throttles_before_start_and_clears_after():
+    """A failed recheck must not be able to write over the library."""
+    q = StubQbt(PACK_T, PACK)
+    L.missing_videos = lambda *a, **k: []
+    L.wait_complete = lambda *a, **k: (True, "ok")
+    ok, _ = L.repoint(q, "abc123", "/tv/S/Season 06",
+                      log=lambda *a: None, discard=lambda p, log: None)
+    assert ok
+    seq = _names(q.calls)
+    assert seq.index("set_download_limit") < seq.index("start")
+    assert ("set_download_limit", L.THROTTLE_BPS) in q.calls
+    assert ("set_download_limit", 0) in q.calls
+    assert q.calls.index(("set_download_limit", 0)) > seq.index("start")
+
+
+def test_repoint_stops_torrent_when_recheck_fails():
+    q = StubQbt(PACK_T, PACK)
+    L.missing_videos = lambda *a, **k: []
+    L.wait_complete = lambda *a, **k: (False, "timeout")
+    ok, reason = L.repoint(q, "abc123", "/tv/S/Season 06",
+                           log=lambda *a: None, discard=lambda p, log: None)
+    assert not ok and "rolled back" in reason
+    assert ("stop", "abc123") in q.calls

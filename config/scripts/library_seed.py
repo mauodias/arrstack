@@ -21,6 +21,7 @@ from http.cookiejar import CookieJar
 VIDEO_EXT = {".mkv", ".mp4", ".avi", ".m4v", ".ts", ".mov", ".wmv", ".mpg", ".mpeg"}
 TAG = "library-seed"
 NO_LIMIT = -1
+THROTTLE_BPS = 1  # during verification, so a failed recheck cannot write to the library
 USER_AGENT = "arrstack-library-seed/1.0"
 
 
@@ -179,6 +180,13 @@ class Qbt:
         self._post("/torrents/renameFolder", {"hash": h.lower(), "oldPath": old, "newPath": new})
 
     def disable_share_limits(self, h):
+        """All three limits off, and the action set to Stop rather than Default.
+
+        qBittorrent 5.2 requires shareLimitAction. Stop is chosen over Default
+        deliberately: with the limits disabled the action should never fire, and
+        if it somehow does, a repointed torrent must pause rather than delete
+        the library it is seeding.
+        """
         self._post(
             "/torrents/setShareLimits",
             {
@@ -186,11 +194,21 @@ class Qbt:
                 "ratioLimit": NO_LIMIT,
                 "seedingTimeLimit": NO_LIMIT,
                 "inactiveSeedingTimeLimit": NO_LIMIT,
+                "shareLimitAction": "Stop",
             },
         )
 
     def add_tags(self, h, tags):
         self._post("/torrents/addTags", {"hashes": h.lower(), "tags": tags})
+
+    def set_download_limit(self, h, limit):
+        self._post("/torrents/setDownloadLimit", {"hashes": h.lower(), "limit": int(limit)})
+
+    def stop(self, h):
+        try:
+            self._post("/torrents/stop", {"hashes": h.lower()})
+        except urllib.error.HTTPError:
+            self._post("/torrents/pause", {"hashes": h.lower()})
 
     def recheck(self, h):
         self._post("/torrents/recheck", {"hashes": h.lower()})
@@ -280,11 +298,19 @@ def repoint(qbt, infohash, target_dir, log=print, discard=None):
             qbt.rename_folder(infohash, root, leaf)
         qbt.disable_share_limits(infohash)
         qbt.add_tags(infohash, TAG)
+
+        # A stopped torrent does not process a recheck, so it has to run. But a
+        # running torrent whose recheck fails would start downloading over the
+        # library files. The throttle makes that harmless: nothing meaningful
+        # can be written while the check decides.
+        qbt.set_download_limit(infohash, THROTTLE_BPS)
         qbt.recheck(infohash)
+        qbt.start(infohash)
         ok, why = wait_complete(qbt, infohash, tolerance)
         if not ok:
+            qbt.stop(infohash)
             raise QbtError("recheck failed: %s" % why)
-        qbt.start(infohash)
+        qbt.set_download_limit(infohash, 0)
     except Exception as exc:
         log("FAILED (%s) -- rolling back to %s" % (exc, old_save))
         try:

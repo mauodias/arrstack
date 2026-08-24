@@ -146,7 +146,7 @@ services:
     container_name: arr-qbittorrent
     network_mode: "service:gluetun"
     environment:
-      - MOUNT_CHECK_DIRS=/downloads
+      - MOUNT_CHECK_DIRS=/downloads /tv /movies
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
@@ -154,6 +154,11 @@ services:
     volumes:
       - ./config/qbittorrent:/config
       - /mnt/remote-media/downloads:/downloads:rslave
+      # Seeding from the library: a repointed torrent's save path is the
+      # library folder, so qBittorrent must see the same paths Sonarr and
+      # Radarr write to, under the same names they use.
+      - /mnt/remote-media/tv:/tv:rslave
+      - /mnt/remote-media/movies:/movies:rslave
     depends_on:
       gluetun:
         condition: service_started
