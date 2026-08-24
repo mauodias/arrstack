@@ -346,10 +346,11 @@ def test_wait_complete_rejects_check_that_finished_incomplete():
     assert not ok and "progress=0.4000" in why
 
 
-def test_wait_complete_reports_missing_files():
-    q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}])
-    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
-    assert not ok and "missingFiles" in why
+def test_wait_complete_does_not_fail_fast_on_missing_files():
+    """Only meaningful after a check; before one it is an artifact of skip_checking."""
+    q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}] * 40)
+    ok, why = L.wait_complete(q, "h", 0, timeout=1, interval=0, sleep=lambda s: None)
+    assert not ok and "timeout" in why
 
 
 def test_script_has_a_shebang():
@@ -455,3 +456,23 @@ def test_wait_complete_rejects_missing_video_beyond_tolerance():
     ])
     ok, why = L.wait_complete(q, "h", 745041, timeout=2, interval=0, sleep=lambda s: None)
     assert not ok and "over tolerance" in why
+
+
+def test_wait_complete_ignores_missing_files_before_the_check_runs():
+    """skip_checking makes qBittorrent report missingFiles until the recheck starts."""
+    q = Clock([
+        {"state": "missingFiles", "progress": 0.0, "amount_left": 1},
+        {"state": "checkingUP", "progress": 0.5, "amount_left": 1},
+        {"state": "stalledUP", "progress": 1.0, "amount_left": 0},
+    ])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert ok, why
+
+
+def test_wait_complete_fails_on_missing_files_after_the_check():
+    q = Clock([
+        {"state": "checkingUP", "progress": 0.1, "amount_left": 1},
+        {"state": "missingFiles", "progress": 0.1, "amount_left": 1},
+    ])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert not ok and "after check" in why

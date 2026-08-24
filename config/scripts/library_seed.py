@@ -291,7 +291,11 @@ def wait_complete(qbt, h, tolerance_bytes, timeout=1800, interval=5, sleep=time.
             return False, "torrent vanished during recheck"
         state = t["state"]
         if state in ("error", "missingFiles"):
-            return False, "state=%s" % state
+            # Before a check has run these are expected: skip_checking marks the
+            # torrent complete on add, so qBittorrent reports missingFiles until
+            # the rename lands and the recheck starts. Only meaningful after.
+            if seen_checking:
+                return False, "state=%s after check" % state
         if state in CHECKING_STATES:
             seen_checking = True
         elif state in TRANSIENT_STATES:
