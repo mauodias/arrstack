@@ -19,11 +19,6 @@ config/alerts/*
 !config/soularr/
 config/soularr/*
 !config/soularr/config.ini.template
-# Exception: library-seed is human-authored code mounted into Sonarr and
-# Radarr as a Custom Script, fetched by bootstrap/init.sh like the rest.
-!config/scripts/
-config/scripts/*
-!config/scripts/library_seed.py
 data/
 __pycache__/
 *.pyc

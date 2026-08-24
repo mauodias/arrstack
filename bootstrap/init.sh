@@ -62,17 +62,6 @@ if ! wget -qO "$WORKSPACE/config/alerts/rules.toml" "$ALERTS_RULES_URL"; then
 fi
 echo "Fetched config/alerts/rules.toml"
 
-# library-seed runs inside Sonarr and Radarr as a Custom Script, repointing a
-# completed torrent at the library files they just imported.
-LIBRARY_SEED_URL="${LIBRARY_SEED_URL:-https://raw.githubusercontent.com/mauodias/arrstack/main/config/scripts/library_seed.py}"
-mkdir -p "$WORKSPACE/config/scripts"
-if ! wget -qO "$WORKSPACE/config/scripts/library_seed.py" "$LIBRARY_SEED_URL"; then
-    echo "Failed to fetch config/scripts/library_seed.py" >&2
-    exit 1
-fi
-chmod +x "$WORKSPACE/config/scripts/library_seed.py"
-echo "Fetched config/scripts/library_seed.py"
-
 mkdir -p "$WORKSPACE/data/rclone-cache"
 
 chown -R "${PUID}:${PGID}" "$WORKSPACE/config" "$WORKSPACE/data" "$MEDIA_ROOT"
