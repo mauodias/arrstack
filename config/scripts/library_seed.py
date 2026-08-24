@@ -143,7 +143,16 @@ class Qbt:
         """The only removal this module performs. deleteFiles is always false."""
         self._post("/torrents/delete", {"hashes": h.lower(), "deleteFiles": "false"})
 
-    def add(self, blob, savepath, category="", tags="", paused=True):
+    def add(self, blob, savepath, category="", tags="", paused=True, skip_checking=True):
+        """Add a torrent.
+
+        skip_checking defaults to True because temp_path_enabled routes an
+        *incomplete* torrent to the temp directory rather than its save path.
+        A freshly added torrent is 0% complete, so without this it looks for
+        its data in /config/incomplete and never sees the library. Marking it
+        complete on add makes the save path apply; the recheck that follows is
+        what actually verifies the data.
+        """
         boundary = "----arrstack%d" % int(time.time() * 1000)
         parts = []
         for k, v in (
@@ -152,7 +161,7 @@ class Qbt:
             ("tags", tags),
             ("paused", "true" if paused else "false"),
             ("stopped", "true" if paused else "false"),
-            ("skip_checking", "false"),
+            ("skip_checking", "true" if skip_checking else "false"),
             ("autoTMM", "false"),
         ):
             parts.append(
@@ -317,7 +326,8 @@ def repoint(qbt, infohash, target_dir, log=print, discard=None):
             qbt.remove_keep_files(infohash)
         except Exception:
             pass
-        qbt.add(blob, old_save, category=t.get("category", ""), tags="", paused=False)
+        qbt.add(blob, old_save, category=t.get("category", ""), tags="", paused=False,
+                skip_checking=False)
         return False, "rolled back: %s" % exc
 
     if old_content and safe_to_discard(old_content, target_dir):

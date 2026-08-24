@@ -108,6 +108,7 @@ class StubQbt:
         self.calls = []
         self.fail_recheck = fail_recheck
         self.removed_with_files = False
+        self.skip_checking_calls = []
 
     def torrent(self, h):
         return dict(self._t) if self._t else None
@@ -122,8 +123,9 @@ class StubQbt:
     def remove_keep_files(self, h):
         self.calls.append(("remove_keep_files", h))
 
-    def add(self, blob, savepath, category="", tags="", paused=True):
+    def add(self, blob, savepath, category="", tags="", paused=True, skip_checking=True):
         self.calls.append(("add", savepath, category, tags, paused))
+        self.skip_checking_calls.append(skip_checking)
         self._t["tags"] = tags
         self._t["save_path"] = savepath
 
@@ -253,3 +255,42 @@ def test_repoint_stops_torrent_when_recheck_fails():
                            log=lambda *a: None, discard=lambda p, log: None)
     assert not ok and "rolled back" in reason
     assert ("stop", "abc123") in q.calls
+
+
+def test_add_sends_skip_checking_flag():
+    """temp_path routes incomplete torrents away from the save path."""
+    captured = []
+
+    class Cap(L.Qbt):
+        def __init__(self):
+            self.base = "http://x/api/v2"
+            self.origin = "http://x"
+
+            class Op:
+                addheaders = []
+
+                def open(self, req, timeout=None):
+                    captured.append(req.data)
+
+                    class R:
+                        @staticmethod
+                        def read():
+                            return b"Ok."
+
+                    return R()
+
+            self._op = Op()
+
+    Cap().add(b"blob", "/tv/Show")
+    assert b'name="skip_checking"\r\n\r\ntrue' in captured[-1]
+    Cap().add(b"blob", "/downloads", skip_checking=False)
+    assert b'name="skip_checking"\r\n\r\nfalse' in captured[-1]
+
+
+def test_rollback_readd_checks_normally():
+    """The rollback returns to a proven-good copy, so it must verify it."""
+    q = StubQbt(PACK_T, PACK)
+    L.missing_videos = lambda *a, **k: []
+    L.wait_complete = lambda *a, **k: (False, "timeout")
+    L.repoint(q, "abc123", "/tv/S/Season 06", log=lambda *a: None, discard=lambda p, log: None)
+    assert q.skip_checking_calls == [True, False]
