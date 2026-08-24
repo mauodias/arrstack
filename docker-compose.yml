@@ -70,7 +70,11 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; for d in movies tv music downloads; do rclone touch hetzner_box:$d/.hetzner-mounted; done; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 100G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 16M --use-mmap --umask 002"]
+    # vfs-cache-max-size is sized against the whole disk, not just this
+    # service: the same 237 GB also carries Docker and qBittorrent's
+    # incomplete downloads, and at 100G those three filled it on 2026-08-24,
+    # which broke qBittorrent's config writes and stalled every share limit.
+    command: ["sh", "-c", "rclone mkdir hetzner_box:movies; rclone mkdir hetzner_box:tv; rclone mkdir hetzner_box:music; rclone mkdir hetzner_box:downloads; for d in movies tv music downloads; do rclone touch hetzner_box:$d/.hetzner-mounted; done; if grep -q ' /data fuse' /proc/mounts 2>/dev/null; then fusermount -uz /data 2>/dev/null || umount -l /data 2>/dev/null || true; fi; exec rclone mount hetzner_box: /data --allow-non-empty --allow-other --cache-dir /cache --dir-cache-time 1h --attr-timeout 1s --vfs-cache-mode full --vfs-cache-max-age 24h --vfs-cache-max-size 50G --vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 1G --buffer-size 16M --use-mmap --umask 002"]
     # `ls /data` succeeds the moment the FUSE mount attaches, which is earlier
     # than the remote content is readable. Dependents gate on this being
     # healthy, so it has to mean the Storage Box is genuinely served: the
