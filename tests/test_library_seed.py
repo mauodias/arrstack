@@ -109,9 +109,18 @@ class StubQbt:
         self.fail_recheck = fail_recheck
         self.removed_with_files = False
         self.skip_checking_calls = []
+        self._check_ticks = 0
 
     def torrent(self, h):
-        return dict(self._t) if self._t else None
+        if not self._t:
+            return None
+        t = dict(self._t)
+        # Simulate a real check: two checking ticks, then settle.
+        if self._check_ticks > 0:
+            self._check_ticks -= 1
+            t["state"] = "checkingUP"
+            t["progress"] = 0.5
+        return t
 
     def files(self, h):
         return self._entries
@@ -140,7 +149,11 @@ class StubQbt:
 
     def recheck(self, h):
         self.calls.append(("recheck", h))
-        self._t["amount_left"] = 999999 if self.fail_recheck else 100
+        self._check_ticks = 2
+        if self.fail_recheck:
+            self._t["state"] = "missingFiles"
+        else:
+            self._t.update(state="stalledUP", progress=1.0, amount_left=0)
 
     def start(self, h):
         self.calls.append(("start", h))
@@ -334,3 +347,10 @@ def test_wait_complete_reports_missing_files():
     q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}])
     ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
     assert not ok and "missingFiles" in why
+
+
+def test_script_has_a_shebang():
+    """Sonarr and Radarr exec the file directly; without one it is Exec format error."""
+    path = os.path.join(os.path.dirname(__file__), "..", "config", "scripts", "library_seed.py")
+    with open(path) as fh:
+        assert fh.readline().startswith("#!"), "library_seed.py needs a shebang"

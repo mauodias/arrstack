@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Repoint a completed torrent at the library files Sonarr or Radarr just imported.
 
 Invoked as a Custom Script by the *arr applications on Import and Upgrade, and
