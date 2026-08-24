@@ -55,6 +55,30 @@ This is not a mitigation to remember; it is the central invariant:
 
 Seeding indefinitely costs nothing, because the bytes are the library's bytes.
 
+## The temp path is the second landmine
+
+`temp_path_enabled` is on, with `temp_path = /config/incomplete`. qBittorrent
+routes any torrent that is **not 100% complete** to that directory — and it
+enforces this by *moving the data there*.
+
+For an ordinary torrent that is housekeeping. For a repointed one it is
+catastrophic, because the directory it moves out of is the library. This is not
+theoretical: on 2026-08-24 La Jetée repointed correctly, verified to 99.8%, and
+qBittorrent moved the file from `/movies/La Jetée (1962)` to
+`/config/incomplete`. Radarr went from `hasFile=True` to `hasFile=False`.
+
+Two consequences, both required:
+
+- **Every repointed torrent is added with `useDownloadPath=false`**, and its
+  download path is cleared explicitly afterwards. Without this, each one sits
+  permanently one failed check away from having the library moved out from
+  under it.
+- **`--sweep` repairs torrents that predate this**, clearing any download path
+  it finds on a `library-seed` torrent.
+
+The invariant above stops qBittorrent *deleting* the library. This stops it
+*moving* the library. They are separate failures and need separate defences.
+
 ## Trigger
 
 A **Custom Script** connection in Sonarr and Radarr, on the `On Import` and
@@ -115,6 +139,22 @@ for Sonarr, the movie folder for Radarr.
 Step 8 is why step 2 keeps the files: until recheck passes, `/downloads` is the
 only proven-good copy.
 
+### Verifying is harder than it looks
+
+Four defects surfaced here during the first live runs, none of them in the
+repoint itself. All four are now covered by tests.
+
+| symptom | cause |
+|---|---|
+| failed at 99.8% | `moving` is a real state between a finished check and its final one; treating it as "check finished" rejects a good repoint |
+| every release with a `.nfo` rejected | the extras tolerance was computed and then contradicted by also demanding `progress >= 1.0`; a torrent missing 745 KB of `Proof/` and `.nfo` settles at 99.97% |
+| torn down one second in | `skip_checking` marks the torrent complete on add, so qBittorrent reports `missingFiles` until the rename lands and the recheck starts |
+| verification passed instantly | for the same reason, `amount_left` reads 0 before anything has been checked; success requires *observing a check finish*, not merely the absence of one |
+
+The rule underneath all four: **`amount_left` measured after a check has been
+seen to run is the only trustworthy signal.** `progress`, `state` and
+`amount_left` read at any other moment describe a torrent mid-transition.
+
 ## Upgrades break repointed torrents
 
 `downloadPropersAndRepacks` is `preferAndUpgrade`. When Sonarr upgrades an
@@ -146,7 +186,14 @@ Credentials come from the environment already present in those containers;
 `QBT_USERNAME` and `QBT_PASSWORD` are added to Sonarr's and Radarr's `environment`
 blocks.
 
-Python 3 is present in both LinuxServer images. No new container, no new image.
+**The LinuxServer images ship no Python 3.** Both arrs therefore carry
+`DOCKER_MODS=linuxserver/mods:universal-package-install` and
+`INSTALL_PACKAGES=python3`. This is LinuxServer's own mechanism and needs no
+custom image, at the cost of a package fetch on every container start.
+
+The script also needs a shebang. Sonarr and Radarr exec the file directly
+rather than through an interpreter, so a file without one fails with
+`Exec format error`.
 
 ## Scope
 
@@ -192,6 +239,12 @@ asserting no path issues `deleteFiles=true` is not optional.
 backed by a Storage Box. A 50 GB pack means reading 50 GB through rclone. This
 should be rate-limited to one repoint at a time, and it is the strongest reason
 not to backfill in bulk.
+
+**Repointing resets the torrent's local ratio.** Remove-and-re-add clears
+qBittorrent's own upload and download counters, so a torrent's accumulated
+ratio is lost. Tracker-side accounting is separate and unaffected. Since
+repointed torrents seed indefinitely with share limits disabled, the local
+figure no longer drives any decision — but the history is gone.
 
 **Extras pollute the library.** `RARBG.txt` and `Subs/` trees land in season
 folders — about 3 MB across the current library. Cosmetic. Bazarr may see the
