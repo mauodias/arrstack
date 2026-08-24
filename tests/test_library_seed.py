@@ -321,7 +321,9 @@ class Clock:
     def torrent(self, h):
         if not self.states:
             return None
-        return self.states.pop(0)
+        # Hold the final state rather than vanishing, so a test can exercise
+        # the timeout path instead of "torrent vanished".
+        return self.states.pop(0) if len(self.states) > 1 else self.states[0]
 
 
 def test_wait_complete_requires_a_check_to_have_run():
@@ -348,7 +350,7 @@ def test_wait_complete_rejects_check_that_finished_incomplete():
 
 def test_wait_complete_does_not_fail_fast_on_missing_files():
     """Only meaningful after a check; before one it is an artifact of skip_checking."""
-    q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}] * 40)
+    q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}])
     ok, why = L.wait_complete(q, "h", 0, timeout=1, interval=0, sleep=lambda s: None)
     assert not ok and "timeout" in why
 
