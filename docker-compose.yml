@@ -208,6 +208,11 @@ services:
       - QBT_URL=http://172.28.0.10:8080
       - QBT_USERNAME=${QBT_USERNAME}
       - QBT_PASSWORD=${QBT_PASSWORD}
+      # The image ships no python3, and library-seed runs as a Custom Script
+      # inside this container. universal-package-install is LinuxServer's own
+      # mechanism for this; it adds a package fetch to container start.
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=python3
     volumes:
       - ./config/scripts:/scripts:ro
       - ./config/radarr:/config
@@ -235,6 +240,11 @@ services:
       - QBT_URL=http://172.28.0.10:8080
       - QBT_USERNAME=${QBT_USERNAME}
       - QBT_PASSWORD=${QBT_PASSWORD}
+      # The image ships no python3, and library-seed runs as a Custom Script
+      # inside this container. universal-package-install is LinuxServer's own
+      # mechanism for this; it adds a package fetch to container start.
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=python3
     volumes:
       - ./config/scripts:/scripts:ro
       - ./config/sonarr:/config
