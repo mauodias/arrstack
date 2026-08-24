@@ -297,11 +297,16 @@ def wait_complete(qbt, h, tolerance_bytes, timeout=1800, interval=5, sleep=time.
         elif state in TRANSIENT_STATES:
             pass
         elif seen_checking:
-            if t.get("progress", 0) < 1.0:
-                return False, "check finished at progress=%.4f" % t.get("progress", 0)
-            if t.get("amount_left", 1) > tolerance_bytes:
-                return False, "amount_left=%s over tolerance %s" % (t.get("amount_left"), tolerance_bytes)
-            return True, "verified progress=1.0"
+            # amount_left is the authority, not progress. A torrent carrying
+            # extras the library never imported -- a .nfo, a Proof/ jpg --
+            # settles below 1.0 by exactly those bytes, which is why the
+            # tolerance exists. Demanding progress == 1.0 as well would reject
+            # every release that ships anything alongside the video.
+            left = t.get("amount_left", 1)
+            if left > tolerance_bytes:
+                return False, "amount_left=%s over tolerance %s (progress=%.4f)" % (
+                    left, tolerance_bytes, t.get("progress", 0))
+            return True, "verified amount_left=%s within tolerance %s" % (left, tolerance_bytes)
         sleep(interval)
     return False, "timeout after %ss (checking_seen=%s)" % (timeout, seen_checking)
 

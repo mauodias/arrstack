@@ -436,3 +436,22 @@ def test_sweep_repairs_download_path_and_retires_broken():
     repaired, removed = L.sweep(q, log=lambda *a: None)
     assert (repaired, removed) == (1, 1)
     assert q.cleared == ["a"] and q.removed == ["c"]
+
+
+def test_wait_complete_accepts_missing_extras_within_tolerance():
+    """A release with a .nfo the library never imported settles below 1.0."""
+    q = Clock([
+        {"state": "checkingUP", "progress": 0.5, "amount_left": 999},
+        {"state": "stalledUP", "progress": 0.9997, "amount_left": 745041},
+    ])
+    ok, why = L.wait_complete(q, "h", 745041, timeout=2, interval=0, sleep=lambda s: None)
+    assert ok, why
+
+
+def test_wait_complete_rejects_missing_video_beyond_tolerance():
+    q = Clock([
+        {"state": "checkingUP", "progress": 0.2, "amount_left": 5_000_000_000},
+        {"state": "stalledDL", "progress": 0.3, "amount_left": 5_000_000_000},
+    ])
+    ok, why = L.wait_complete(q, "h", 745041, timeout=2, interval=0, sleep=lambda s: None)
+    assert not ok and "over tolerance" in why
