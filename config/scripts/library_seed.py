@@ -144,7 +144,8 @@ class Qbt:
         """The only removal this module performs. deleteFiles is always false."""
         self._post("/torrents/delete", {"hashes": h.lower(), "deleteFiles": "false"})
 
-    def add(self, blob, savepath, category="", tags="", paused=True, skip_checking=True):
+    def add(self, blob, savepath, category="", tags="", paused=True, skip_checking=True,
+            use_download_path=False):
         """Add a torrent.
 
         skip_checking defaults to True because temp_path_enabled routes an
@@ -153,6 +154,12 @@ class Qbt:
         its data in /config/incomplete and never sees the library. Marking it
         complete on add makes the save path apply; the recheck that follows is
         what actually verifies the data.
+
+        use_download_path is false because temp_path_enabled relocates any
+        torrent that drops below 100% into the temp directory. For a repointed
+        torrent that directory move takes the *library* with it -- which is
+        exactly what happened to La Jetee on 2026-08-24. Opting the torrent out
+        of the download path removes the landmine rather than racing it.
         """
         boundary = "----arrstack%d" % int(time.time() * 1000)
         parts = []
@@ -163,6 +170,7 @@ class Qbt:
             ("paused", "true" if paused else "false"),
             ("stopped", "true" if paused else "false"),
             ("skip_checking", "true" if skip_checking else "false"),
+            ("useDownloadPath", "true" if use_download_path else "false"),
             ("autoTMM", "false"),
         ):
             parts.append(
@@ -252,7 +260,11 @@ def safe_to_discard(path, target_dir, downloads_root=None):
     return True
 
 
-CHECKING_STATES = ("checkingUP", "checkingDL", "checkingResumeData", "queuedForChecking", "allocating")
+CHECKING_STATES = ("checkingUP", "checkingDL", "checkingResumeData", "queuedForChecking")
+# States that are neither checking nor settled. qBittorrent passes through
+# "moving" between a finished check and its final state; treating that as a
+# finished check reports failure at 99.8% and tears down a good repoint.
+TRANSIENT_STATES = ("moving", "allocating", "metaDL", "unknown")
 
 
 def wait_complete(qbt, h, tolerance_bytes, timeout=1800, interval=5, sleep=time.sleep):
@@ -274,6 +286,8 @@ def wait_complete(qbt, h, tolerance_bytes, timeout=1800, interval=5, sleep=time.
             return False, "state=%s" % state
         if state in CHECKING_STATES:
             seen_checking = True
+        elif state in TRANSIENT_STATES:
+            pass
         elif seen_checking:
             if t.get("progress", 0) < 1.0:
                 return False, "check finished at progress=%.4f" % t.get("progress", 0)

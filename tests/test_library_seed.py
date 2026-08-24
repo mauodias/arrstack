@@ -354,3 +354,43 @@ def test_script_has_a_shebang():
     path = os.path.join(os.path.dirname(__file__), "..", "config", "scripts", "library_seed.py")
     with open(path) as fh:
         assert fh.readline().startswith("#!"), "library_seed.py needs a shebang"
+
+
+def test_wait_complete_tolerates_moving_between_check_and_settle():
+    """qBittorrent passes through "moving"; that is not a finished check."""
+    q = Clock([
+        {"state": "checkingUP", "progress": 0.5, "amount_left": 9},
+        {"state": "moving", "progress": 0.998, "amount_left": 9},
+        {"state": "moving", "progress": 0.999, "amount_left": 9},
+        {"state": "stalledUP", "progress": 1.0, "amount_left": 0},
+    ])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert ok, why
+
+
+def test_add_opts_out_of_the_download_path():
+    """temp_path relocates sub-100% torrents; for a repoint that moves the library."""
+    captured = []
+
+    class Cap(L.Qbt):
+        def __init__(self):
+            self.base = "http://x/api/v2"
+            self.origin = "http://x"
+
+            class Op:
+                addheaders = []
+
+                def open(self, req, timeout=None):
+                    captured.append(req.data)
+
+                    class R:
+                        @staticmethod
+                        def read():
+                            return b"Ok."
+
+                    return R()
+
+            self._op = Op()
+
+    Cap().add(b"blob", "/movies/Film (1962)")
+    assert b'name="useDownloadPath"\r\n\r\nfalse' in captured[-1]
