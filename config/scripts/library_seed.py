@@ -251,19 +251,36 @@ def safe_to_discard(path, target_dir, downloads_root=None):
     return True
 
 
+CHECKING_STATES = ("checkingUP", "checkingDL", "checkingResumeData", "queuedForChecking", "allocating")
+
+
 def wait_complete(qbt, h, tolerance_bytes, timeout=1800, interval=5, sleep=time.sleep):
-    """Block until the torrent has every byte it needs, or the timeout expires."""
+    """Block until the torrent has verified every byte it needs.
+
+    The torrent is added with skip_checking, so amount_left reads 0 from the
+    moment it appears -- before anything has been verified. Waiting on that
+    alone would report success instantly and discard the only good copy. A
+    checking state must therefore be observed to finish, not merely be absent.
+    """
     deadline = time.time() + timeout
+    seen_checking = False
     while time.time() < deadline:
         t = qbt.torrent(h)
         if t is None:
             return False, "torrent vanished during recheck"
-        if t["state"] in ("error", "missingFiles"):
-            return False, "state=%s" % t["state"]
-        if t.get("amount_left", 1) <= tolerance_bytes:
-            return True, "amount_left=%s" % t.get("amount_left")
+        state = t["state"]
+        if state in ("error", "missingFiles"):
+            return False, "state=%s" % state
+        if state in CHECKING_STATES:
+            seen_checking = True
+        elif seen_checking:
+            if t.get("progress", 0) < 1.0:
+                return False, "check finished at progress=%.4f" % t.get("progress", 0)
+            if t.get("amount_left", 1) > tolerance_bytes:
+                return False, "amount_left=%s over tolerance %s" % (t.get("amount_left"), tolerance_bytes)
+            return True, "verified progress=1.0"
         sleep(interval)
-    return False, "timeout after %ss" % timeout
+    return False, "timeout after %ss (checking_seen=%s)" % (timeout, seen_checking)
 
 
 def repoint(qbt, infohash, target_dir, log=print, discard=None):

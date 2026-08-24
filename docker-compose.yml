@@ -203,7 +203,13 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+      # library-seed reaches qBittorrent through the tailnet subnet route, the
+      # same address Homepage uses.
+      - QBT_URL=http://172.28.0.10:8080
+      - QBT_USERNAME=${QBT_USERNAME}
+      - QBT_PASSWORD=${QBT_PASSWORD}
     volumes:
+      - ./config/scripts:/scripts:ro
       - ./config/radarr:/config
       - /mnt/remote-media/movies:/movies:rslave
       - /mnt/remote-media/downloads:/downloads:rslave
@@ -224,7 +230,13 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+      # library-seed reaches qBittorrent through the tailnet subnet route, the
+      # same address Homepage uses.
+      - QBT_URL=http://172.28.0.10:8080
+      - QBT_USERNAME=${QBT_USERNAME}
+      - QBT_PASSWORD=${QBT_PASSWORD}
     volumes:
+      - ./config/scripts:/scripts:ro
       - ./config/sonarr:/config
       - /mnt/remote-media/tv:/tv:rslave
       - /mnt/remote-media/downloads:/downloads:rslave

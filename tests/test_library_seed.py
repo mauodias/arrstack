@@ -294,3 +294,43 @@ def test_rollback_readd_checks_normally():
     L.wait_complete = lambda *a, **k: (False, "timeout")
     L.repoint(q, "abc123", "/tv/S/Season 06", log=lambda *a: None, discard=lambda p, log: None)
     assert q.skip_checking_calls == [True, False]
+
+
+class Clock:
+    """A qBittorrent that reports a scripted sequence of states."""
+
+    def __init__(self, states):
+        self.states = list(states)
+
+    def torrent(self, h):
+        if not self.states:
+            return None
+        return self.states.pop(0)
+
+
+def test_wait_complete_requires_a_check_to_have_run():
+    """skip_checking makes amount_left 0 immediately; that is not verification."""
+    q = Clock([
+        {"state": "stoppedUP", "progress": 0.0, "amount_left": 0},
+        {"state": "checkingUP", "progress": 0.5, "amount_left": 0},
+        {"state": "checkingUP", "progress": 0.9, "amount_left": 0},
+        {"state": "stalledUP", "progress": 1.0, "amount_left": 0},
+    ])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert ok, why
+    assert "verified" in why
+
+
+def test_wait_complete_rejects_check_that_finished_incomplete():
+    q = Clock([
+        {"state": "checkingUP", "progress": 0.2, "amount_left": 9},
+        {"state": "stalledDL", "progress": 0.4, "amount_left": 9},
+    ])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert not ok and "progress=0.4000" in why
+
+
+def test_wait_complete_reports_missing_files():
+    q = Clock([{"state": "missingFiles", "progress": 0.0, "amount_left": 1}])
+    ok, why = L.wait_complete(q, "h", 0, timeout=2, interval=0, sleep=lambda s: None)
+    assert not ok and "missingFiles" in why
