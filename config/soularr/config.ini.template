@@ -18,7 +18,13 @@ remote_queue_timeout = 300
 
 [Release Settings]
 use_selected_lidarr_release = False
-use_most_common_tracknum = True
+# False so any Official release matching country and format is eligible.
+# True restricted selection to the modal track count across all releases,
+# which misfires on reissue-heavy catalogues: a jazz standard may have forty
+# releases -- original LP, CD reissue, remaster with alternate takes, Japanese
+# pressing, box set -- and the most common count is often not the one people
+# actually share.
+use_most_common_tracknum = False
 allow_multi_disc = True
 accepted_countries = Europe,Japan,United Kingdom,United States,[Worldwide],Australia,Canada
 skip_region_check = False
@@ -28,7 +34,13 @@ accepted_formats = CD,Digital Media,Vinyl
 search_timeout = 5000
 maximum_peer_queue = 50
 minimum_peer_upload_speed = 0
-minimum_filename_match_ratio = 0.8
+# 0.6 rather than 0.8. Titles that survive badly on other people's
+# filesystems fall below 0.8: accented ones get mojibaked (Racine carree,
+# Racine carrÃ©e) and jazz tracks lose their qualifiers ('Round Midnight
+# (Alternate Take 2) shared as "05 Round Midnight.flac"). Failed imports were
+# almost entirely jazz, blues and Stromae -- the accent/punctuation cases,
+# not a genre problem.
+minimum_filename_match_ratio = 0.6
 minimum_search_interval = 5
 # Mirrors Lidarr's Lossless and High Quality profiles: lossless first, then
 # MP3 320. Order is preference, best first. Bare `mp3` is deliberately absent
