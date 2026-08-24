@@ -219,6 +219,14 @@ class Qbt:
     def add_tags(self, h, tags):
         self._post("/torrents/addTags", {"hashes": h.lower(), "tags": tags})
 
+    def clear_download_path(self, h):
+        """Remove any temp/download path from a torrent.
+
+        useDownloadPath=false on add should be enough, but this is cheap and it
+        is also how torrents repointed before that flag existed get repaired.
+        """
+        self._post("/torrents/setDownloadPath", {"id": h.lower(), "path": ""})
+
     def set_download_limit(self, h, limit):
         self._post("/torrents/setDownloadLimit", {"hashes": h.lower(), "limit": int(limit)})
 
@@ -337,6 +345,7 @@ def repoint(qbt, infohash, target_dir, log=print, discard=None):
 
         if root and root != leaf:
             qbt.rename_folder(infohash, root, leaf)
+        qbt.clear_download_path(infohash)
         qbt.disable_share_limits(infohash)
         qbt.add_tags(infohash, TAG)
 
@@ -410,20 +419,30 @@ def connect():
 
 
 def sweep(qbt, log=print):
-    """Remove repointed torrents whose files an upgrade has replaced."""
-    n = 0
+    """Reconcile repointed torrents.
+
+    Two jobs: repair any that still carry a download path (they predate
+    useDownloadPath, and are one failed check away from having the library
+    moved), and retire any whose files an upgrade has replaced.
+    """
+    repaired = removed = 0
     for t in qbt.by_tag(TAG):
+        if t.get("download_path"):
+            log("sweep: clearing download path on %s" % t["name"][:60])
+            qbt.clear_download_path(t["hash"])
+            repaired += 1
         if t["state"] in ("missingFiles", "error"):
             log("sweep: removing %s (%s)" % (t["name"][:60], t["state"]))
             qbt.remove_keep_files(t["hash"])
-            n += 1
-    log("sweep: removed %d" % n)
-    return n
+            removed += 1
+    log("sweep: repaired %d, removed %d" % (repaired, removed))
+    return repaired, removed
 
 
 def main(argv):
     if "--sweep" in argv:
-        return 0 if sweep(connect()) >= 0 else 1
+        sweep(connect())
+        return 0
 
     infohash, target_dir, event = event_from_env(os.environ)
     if event in ("Test", "test"):

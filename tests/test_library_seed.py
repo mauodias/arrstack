@@ -164,6 +164,9 @@ class StubQbt:
     def set_download_limit(self, h, limit):
         self.calls.append(("set_download_limit", limit))
 
+    def clear_download_path(self, h):
+        self.calls.append(("clear_download_path", h))
+
 
 PACK_T = {
     "hash": "abc123", "progress": 1.0, "tags": "", "category": "tv-sonarr",
@@ -394,3 +397,42 @@ def test_add_opts_out_of_the_download_path():
 
     Cap().add(b"blob", "/movies/Film (1962)")
     assert b'name="useDownloadPath"\r\n\r\nfalse' in captured[-1]
+
+
+def test_repoint_clears_download_path_before_starting():
+    q = StubQbt(PACK_T, PACK)
+    L.missing_videos = lambda *a, **k: []
+    L.wait_complete = lambda *a, **k: (True, "ok")
+    ok, _ = L.repoint(q, "abc123", "/tv/S/Season 06",
+                      log=lambda *a: None, discard=lambda p, log: None)
+    assert ok
+    seq = _names(q.calls)
+    assert "clear_download_path" in seq
+    assert seq.index("clear_download_path") < seq.index("start")
+
+
+class SweepQbt:
+    def __init__(self, rows):
+        self.rows = rows
+        self.cleared = []
+        self.removed = []
+
+    def by_tag(self, tag):
+        return self.rows
+
+    def clear_download_path(self, h):
+        self.cleared.append(h)
+
+    def remove_keep_files(self, h):
+        self.removed.append(h)
+
+
+def test_sweep_repairs_download_path_and_retires_broken():
+    q = SweepQbt([
+        {"hash": "a", "name": "old", "state": "stalledUP", "download_path": "/config/incomplete"},
+        {"hash": "b", "name": "fine", "state": "uploading", "download_path": ""},
+        {"hash": "c", "name": "broken", "state": "missingFiles", "download_path": ""},
+    ])
+    repaired, removed = L.sweep(q, log=lambda *a: None)
+    assert (repaired, removed) == (1, 1)
+    assert q.cleared == ["a"] and q.removed == ["c"]
