@@ -40,10 +40,3 @@ name      = "Soulseek connection"
 direction = "below"
 error     = 1
 debounce  = 3
-
-[[rule]]
-metric    = "slskd.downloads.success_rate"
-name      = "Soulseek success rate"
-direction = "below"
-warning   = 75
-error     = 60

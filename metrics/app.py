@@ -1182,6 +1182,18 @@ def render_page(range_key):
 
 
 SUMMARY_METRICS = (
+    # Collected all along, but absent here until 2026-08-24, so summary.json
+    # -- and anything reading it, including the digest -- could not see the
+    # VPS disk filling up or how large the music library had grown.
+    "vps_disk.used_bytes",
+    "vps_disk.total_bytes",
+    "vps_disk.free_bytes",
+    "hetzner_box.used_bytes",
+    "hetzner_box.total_bytes",
+    "lidarr.size_on_disk_bytes",
+    "lidarr.wanted_missing",
+    "lidarr.queue_count",
+    "lidarr.artist_count",
     "old_collection.size_bytes",
     "old_collection.folders",
     "old_collection.files",
