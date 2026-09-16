@@ -60,15 +60,14 @@ number_of_albums_to_grab = 20
 title_blacklist =
 search_blacklist =
 search_source = missing
-# False so a failed import is retried on later runs. True makes soularr skip
-# that album permanently via its own local denylist file -- note this is
-# soularr's list, not Lidarr's blocklist, which stays empty either way.
-#
-# The move to /downloads/failed_imports happens regardless: move_failed_import
-# is called unconditionally on failure and has no flag. With retries on, a
-# persistently-unimportable album lands there again each run with a counter
-# suffix, so that folder needs an occasional sweep.
-failed_import_denylist = False
+# True so a failed import is skipped permanently via soularr's own local
+# denylist file -- note this is soularr's list, not Lidarr's blocklist, which
+# stays empty either way. move_failed_import runs unconditionally on failure
+# and has no flag, so a persistently-unimportable album otherwise lands in
+# /downloads/failed_imports again every run with a counter suffix and that
+# folder grows unbounded. If a better source shows up for something on the
+# denylist, search for it manually.
+failed_import_denylist = True
 
 [Download Settings]
 download_filtering = True
